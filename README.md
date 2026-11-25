@@ -1,24 +1,22 @@
 # Arctic-TVC: foundation models for tundra vegetation mapping
 
 [![CI](https://github.com/Lmague/benchmark-memoire/actions/workflows/ci.yml/badge.svg)](https://github.com/Lmague/benchmark-memoire/actions/workflows/ci.yml)
-[![Code License: MIT](https://img.shields.io/badge/Code-MIT-blue.svg)](LICENSE)
-[![Data & Figures: CC-BY-4.0](https://img.shields.io/badge/Figures%20%26%20Tables-CC--BY--4.0-lightgrey.svg)](LICENSE-DATA)
 [![Dataset DOI](https://img.shields.io/badge/Arctic--TVC-10.20383%2F103.01418-teal.svg)](https://doi.org/10.20383/103.01418)
 
-MSc project in computer science (AI), UQAM. Supervisors: Mohamed Bouguessa (ML) and Étienne Laliberté (ecology).
+Code and results for my M.Sc. thesis in computer science (AI) at UQAM, supervised by Mohamed Bouguessa (ML) and Étienne Laliberté (ecology).
 
-The task is to label 224 px tiles cut from drone orthomosaics of arctic tundra (about 2.2 mm/px) into 11 vegetation classes. I use frozen models, parameter-efficient adapters and full fine-tuning, plus a from-scratch control, with one shared linear probe and one test split, and ask what actually improves the map: a better backbone, fine-tuning, or the tiles around each tile.
+The goal is to classify 224 px tiles cropped from Arctic tundra drone orthomosaics (about 2.2 mm/px) into 11 vegetation classes. I compare frozen foundation models, parameter-efficient fine-tuning (PEFT), full fine-tuning, and a from-scratch baseline under one shared linear probe and one orthomosaic-level test split. The main question is simple: on this kind of fine-scale vegetation map, what actually helps the most — a bigger/better backbone, fine-tuning, or using the neighbouring tiles around each tile?
 
-What I found:
+Main takeaways:
 
-- Among DINOv3 and SimDINOv2 backbones, size and adaptation move macro F1 by 0.015 at most. At 9 test maps none of these differences separates from the best frozen model. Only the weakest backbones do: SatMAE, ResNet-50 ImageNet and ViT-B/16 from scratch.
-- Neighbouring tiles move F1 by about 0.04 to 0.06. The smoothing step needs no training; the probe is refit on the aggregated features.
-- Learned aggregation of neighbours (attention, GATv2) does not beat a plain average.
-- Embedding geometry can rank models somewhat better than chance, but it does not predict F1.
+- Across the DINOv3 and SimDINOv2 models, changing model size or fine-tuning moves macro F1 by at most 0.015. With 9 test orthomosaics, none of these models is significantly different from the best frozen backbone. Only the weakest baselines stand out: SatMAE, frozen ResNet-50 ImageNet, and ViT-B/16 trained from scratch.
+- Using neighbouring tiles and spatial smoothing increases macro F1 by roughly +0.04 to +0.06. The smoothing step requires no training; only the linear probe is refit on the averaged features.
+- Learned neighbour aggregation (self-attention, CNN, GATv2) does not beat a simple uniform average.
+- Embedding geometry metrics can rank models slightly better than chance, but they do not predict F1 accurately.
 
-Highest point estimate: **0.5394 macro F1** with a frozen DINOv3-L, a 3x3 average of tile embeddings and mean-field smoothing of the predicted map, across eight backbones with extended grids. The SimDINOv2-B recipe described in detail below reads 0.5359 in its own run (0.5362 in the eight-backbone run), against 0.4720 on a single tile in that same run.
+My highest score overall is **0.5394 macro F1**, obtained with a frozen DINOv3-L backbone, a 3x3 average of tile embeddings, and mean-field smoothing on the predicted map (in the 8-backbone experiment with extended smoothing grids). For the SimDINOv2-B pipeline analyzed in detail below, the same recipe reaches 0.5359 in its dedicated run (0.5362 in the 8-backbone run), compared to 0.4720 on a single tile in that run.
 
-These recipes read neighbouring tiles at inference and are not part of the 42 configurations. Among single-input deployable models, the best is context distillation at 0.4872. The three context-fusion rows (0.5052 to 0.5079) need the tile plus context at inference and are non-deployable upper bounds; the tile + 512 px recipe in the figure is the same kind of arm.
+Note that these multi-tile recipes use neighbouring tiles at inference time, so they are evaluated separately from the 42 single-input configurations. Among deployable single-tile models, the best one is context distillation at 0.4872. The three context-fusion rows (0.5052 to 0.5079) require both the tile and a 512 px context patch at inference time, so I treat them as non-deployable upper bounds (same for the frozen tile + 512 px recipe in the figure).
 
 Contents: [Ranking](#ranking-of-42-configurations) · [Adaptation](#adaptation-methods) · [Context and smoothing](#neighbouring-tiles-and-smoothing) · [Other backbones](#does-it-hold-on-other-backbones) · [Learned aggregation](#learned-aggregation) · [Embedding geometry](#embedding-geometry) · [Data size](#data-size) · [Per class](#per-class) · [Protocol](#protocol) · [Ongoing](#ongoing-work) · [Limits](#limits) · [Reproduce](#reproduce)
 
@@ -26,14 +24,14 @@ Contents: [Ranking](#ranking-of-42-configurations) · [Adaptation](#adaptation-m
 
 ![Named ranking and significance](figures/readme/01_leaderboard.png)
 
-42 configurations: 11 frozen and 31 fine-tuned (3 seeds each). 39 are deployable; the other 3 (rows 1 to 3, marked "upper bound" in the table) need the tile plus context at inference. This is the canonical tier of the clean baseline plus those 3 upper bounds; the other 112 registered runs (supporting and exploratory) are not ranked here. Two supporting runs score above the best canonical model and are excluded: a DINOv3-B rank ablation (0.4845) and a single-seed spatial LoRA (0.4885). All are read with the same linear probe. The figure has three levels of input: single tile (top 18 models plus 8 reference points, including the frozen DINOv3-B), neighbour tiles as input, and smoothing of the predicted map. The full list is below.
+This ranking covers 42 configurations: 11 frozen models and 31 fine-tuned models (3 seeds each). Out of the 42, 39 are deployable on a single tile; the top 3 rows (marked "upper bound" in the table) need both the tile and a wider context window at inference. This corresponds to the canonical tier of the clean baseline plus those 3 upper bounds; the other 112 runs registered in the baseline (supporting and exploratory experiments) are not included in this ranking. Two supporting runs actually score slightly higher than the best canonical single-tile model and are kept out of this table: a DINOv3-B rank ablation (0.4845) and a single-seed spatial LoRA run (0.4885). Every model is evaluated with the exact same linear probe. The figure groups the results into three input levels: single tile (top 18 models plus 8 reference models, including frozen DINOv3-B), neighbouring tiles as input, and map-level smoothing. The full 42-model table is folded below.
 
-- Best frozen model: DINOv3 ViT-H+/16, 0.4805. Best plain LoRA in this ranking: DINOv3-L, 0.4842. That is +0.0037, CI [-0.034, +0.017], q = 0.76: not separable.
-- Only 3 of 38 single-tile models separate from the best frozen model after Benjamini-Hochberg correction: SatMAE (-0.071), frozen ResNet-50 ImageNet (-0.073) and ViT-B/16 from scratch (-0.126). Everything else fails the correction (q > 0.10). Three of those still have paired intervals excluding zero: ViT-B/16 ImageNet, Scale-MAE and fine-tuned ResNet-50.
-- DINOv3 ViT-L on satellite images reads 0.4620 against 0.4791 for the natural-image version of the same model (-0.017, CI [-0.058, +0.001], not separable). Scale-MAE (0.4478) and SatMAE (0.4097) are ViT-L models and read below frozen ViT-B/16 ImageNet (0.4497), a different model size, so they do not isolate the effect of satellite pretraining.
-- Fine-tuning on top of the same 512 px fusion does not visibly help: LoRA variants read 0.5056 and 0.5052 (clean baseline) against 0.5058 for the frozen fusion (tile-context run). Different runs, so this is indicative only.
-- The fusion and mean arms (0.5052 to 0.5205) sit above every single-tile model; three of them are non-deployable upper bounds. Learned aggregation does not: the CNN reads 0.4824 and GATv2 with shuffled edges 0.4648, both below the best single-tile model. These arms are outside the test family above.
-- Non-linear readouts (MLP, bilinear, FiLM) never beat the linear probe on tile features (0 of 33 groups, mean delta -0.0103). They do on 2 of 24 fused groups, both single-seed without intervals, so they are not claimed as gains.
+- Best frozen model: DINOv3 ViT-H+/16 at 0.4805. Best standard LoRA in this ranking: DINOv3-L at 0.4842. The difference is +0.0037 (CI [-0.034, +0.017], q = 0.76), which is not statistically significant.
+- After Benjamini-Hochberg correction, only 3 of the 38 single-tile models are significantly different from the best frozen model: SatMAE (-0.071), frozen ResNet-50 ImageNet (-0.073), and ViT-B/16 from scratch (-0.126). All other pairs fail the correction (q > 0.10), even though three of them still have paired 95% CIs excluding zero (ViT-B/16 ImageNet, Scale-MAE, and fine-tuned ResNet-50).
+- Satellite-pretrained DINOv3 ViT-L gets 0.4620 vs 0.4791 for the natural-image version of the same architecture (-0.017, CI [-0.058, +0.001], not significant). Scale-MAE (0.4478) and SatMAE (0.4097) are both ViT-L models and still score below frozen ViT-B/16 ImageNet (0.4497), though the architecture size differs so this alone does not isolate the effect of satellite pretraining.
+- Adding fine-tuning on top of the 512 px context fusion does not seem to help: the two LoRA variants get 0.5056 and 0.5052 (clean baseline) compared to 0.5058 for the frozen fusion (tile-context run). Since those numbers come from separate runs, this is indicative rather than a paired test.
+- The context-fusion and 3x3-mean setups (0.5052 to 0.5205) are above every single-tile model (three of them are non-deployable upper bounds). By contrast, learned aggregation does not reach that level: the 3x3 CNN gets 0.4824 and GATv2 with shuffled edges gets 0.4648, both below the best single-tile model. These setups are outside the Benjamini-Hochberg test family above.
+- Non-linear classification heads (MLP, bilinear, FiLM) never beat the linear probe on single-tile features (0 out of 33 groups, mean delta -0.0103). They do slightly better on 2 out of 24 fused groups, both single-seed and without confidence intervals, so I do not count them as reliable gains.
 
 <details>
 <summary>All 42 configurations</summary>
@@ -89,38 +87,37 @@ Contents: [Ranking](#ranking-of-42-configurations) · [Adaptation](#adaptation-m
 
 ![Adaptation regimes](figures/readme/02_adaptation_regimes.png)
 
-16 ways to adapt SimDINOv2-B/16 end between 0.4692 and 0.4812. Frozen is 0.4719. SimDINOv2-B is the workhorse here because it is the only backbone with a full 16-regime ladder in the clean baseline; its frozen score is within 0.0004 of DINOv3-B (0.4715), and the eight-backbone run below finds the same context and smoothing gains on DINOv3-B (+0.055 and 0.5366, against +0.057 and 0.5362 for SimDINOv2-B). None of the 16 separates from it (best: LoRA r=8 on Q+K+V, +0.0094, CI [-0.006, +0.020], q = 0.24).
+All 16 adaptation methods tested on SimDINOv2-B/16 end up between 0.4692 and 0.4812, compared to 0.4719 for the frozen backbone. I use SimDINOv2-B as the main testbed here because it is the only backbone where I ran the full 16-regime ablation in the clean baseline. Its frozen F1 is almost identical to DINOv3-B (0.4715, a 0.0004 gap), and the 8-backbone check below shows the same context and smoothing gains on DINOv3-B (+0.055 up to 0.5366, vs +0.057 up to 0.5362 for SimDINOv2-B). None of the 16 adapted versions is significantly better than the frozen model (the best one is LoRA r=8 on Q+K+V at +0.0094, CI [-0.006, +0.020], q = 0.24).
 
-- LoRA rank 2 to 32 goes from 0.4793 down to 0.4751, but no pair separates (rank 2 against rank 32: +0.0042, CI [-0.003, +0.009], q = 0.31), so the trend is not established.
-- Training only the norm layers and the head (0.4783) is not separable from LoRA r=8 (CI [-0.009, +0.009]); against full fine-tuning the interval still allows a +0.021 gap.
-- Full fine-tuning has the largest seed spread: 0.4696 to 0.4827 over 3 seeds.
-- Attention-only tuning reads 0.4692, 0.0027 below frozen, but not separably (CI [-0.020, +0.008], q = 0.78).
+- Going from LoRA rank 2 to rank 32 drops the mean score from 0.4793 to 0.4751, but no pair is statistically different (rank 2 vs rank 32: +0.0042, CI [-0.003, +0.009], q = 0.31), so I cannot confirm a real downward trend.
+- Updating only the normalization layers and the linear head gives 0.4783, practically indistinguishable from LoRA r=8 (CI [-0.009, +0.009]); compared to full fine-tuning, the CI is still wide enough to allow up to a +0.021 difference.
+- Full fine-tuning is the most sensitive to the random seed: 0.4696 to 0.4827 across 3 seeds.
+- Tuning only attention layers (MHSA) drops to 0.4692, which is 0.0027 below frozen, though again not statistically significant (CI [-0.020, +0.008], q = 0.78).
 
-The same figure shows the neighbourhood and smoothing arms on the same backbone, for scale. Against 0.4719 frozen and 0.4812 for the best adaptation, the 512 px context reads 0.5058, the 3x3 mean 0.5205, and smoothing on top of it 0.5359. GATv2 on the full graph reads 0.4933, below the 3x3 mean. The two levers differ by a factor of about seven: +0.009 for adaptation, +0.064 for context and smoothing.
+For perspective, the top part of the figure plots the neighbourhood and smoothing setups on the exact same frozen backbone. Compared to 0.4719 frozen and 0.4812 for the best adaptation, the 512 px context gets 0.5058, the 3x3 average reaches 0.5205, and adding mean-field smoothing reaches 0.5359. GATv2 on the full graph gets 0.4933, still below the simple 3x3 average. Overall, context and smoothing bring roughly seven times more gain than adaptation (+0.064 vs +0.009).
 
 ## Neighbouring tiles and smoothing
 
 ![Context ladder](figures/readme/03_context_ladder.png)
 
-All rows use the same frozen SimDINOv2-B/16 embeddings and the canonical probe. Deltas are paired, with a hierarchical bootstrap (orthomosaic then tile), 10,000 replicates.
+All rows here use the same frozen SimDINOv2-B/16 embeddings and the canonical linear probe. Paired differences are computed with a hierarchical bootstrap (resampling orthomosaics first, then tiles) over 10,000 replicates.
 
-- Adding context tiles raises F1 from 0.4718 to 0.5205. The step from tile + 512 px context to the 3x3 mean is not separable from zero: paired-bootstrap delta +0.0136 (the point difference is 0.0147), CI [-0.032, +0.036], p = 0.20.
-- Mean-field smoothing gives the largest point gain: +0.0578 on a single tile, +0.0152 on top of the 3x3 mean. Both intervals exclude zero. The two gains were not compared directly with each other.
-- After smoothing, the 3x3 mean is not separable from a single tile: +0.0062, CI [-0.010, +0.053], p = 0.28. The interval still allows a +0.05 gain.
-- Smoothing has no learned parameters and no training. Its strength and number of iterations are chosen on validation; in the reported arms the iteration count and the ±112 px strength both sit at the grid maximum, so these gains may be under-estimated rather than inflated. Neighbour embeddings come from a cache.
-- Colour and texture descriptors concatenated to the embedding lower F1 by 0.004 to 0.005 in both runs. No paired interval was computed for this arm.
+- Adding neighbouring tiles increases F1 from 0.4718 to 0.5205. Moving from tile + 512 px context to the 3x3 average is not statistically significant on its own: paired-bootstrap delta +0.0136 (point difference 0.0147), CI [-0.032, +0.036], p = 0.20.
+- Mean-field smoothing gives the largest single gain: +0.0578 on top of a single tile, and +0.0152 on top of the 3x3 average. Both CIs exclude zero (note that I did not run a direct paired test comparing those two gains against each other).
+- Once smoothing is applied, the difference between the 3x3 average and a single tile is no longer significant (+0.0062, CI [-0.010, +0.053], p = 0.28), although the CI still leaves room for a gain up to +0.05.
+- Mean-field smoothing has no learned weights and requires no training. Its strength (beta) and number of iterations are picked on the validation maps. In these runs, both the iteration count and the ±112 px strength hit the upper bound of the search grid, so the reported gains might actually be slightly conservative. Neighbour embeddings are loaded from disk cache.
+- Concatenating classical colour and texture descriptors to the tile embedding hurts F1 by 0.004 to 0.005 in both runs (no paired CI computed).
 
 ![Where smoothing acts](figures/readme/04_smoothing.png)
 
-- 301 of the 349 net corrected tiles sit in mixed neighbourhoods (3 to 5 of 8 neighbours share the label). Tiles on true boundaries lose (-55).
-- With mean-field smoothing, the nearest ring reads best (tiles are 224 px, stride 112, so ±112 px is 50% overlap): 0.5294, against 0.5102 at ±224 px and 0.4957 at ±336 px. Validation agrees (0.4891 against 0.4737 for ±224 px). Combining rings reads 0.5195 to 0.5228. No interval was computed for these ring comparisons, so this is a ranking of point estimates.
-
+- Out of the 349 net tiles corrected by mean-field smoothing, 301 are in mixed neighbourhoods (where 3 to 5 out of 8 neighbours share the tile's true class). As expected, tiles sitting right on class boundaries lose accuracy (-55 net tiles).
+- For mean-field smoothing, using only the closest ring of neighbours works best (tiles are 224 px with a 112 px stride, so ±112 px corresponds to 50% overlap): 0.5294, compared to 0.5102 at ±224 px and 0.4957 at ±336 px. Validation follows the same order (0.4891 vs 0.4737 at ±224 px). Combining multiple rings gives 0.5195 to 0.5228. I did not compute CIs for these radius comparisons, so treat them as point estimates.
 
 ## Does it hold on other backbones?
 
 ![Context and smoothing on eight backbones](figures/readme/09_multibackbone.png)
 
-Same canonical split, same probe, same tile graph, eight backbones: five frozen (SimDINOv2-B, SimDINOv2-L, DINOv3-B, DINOv3-L, DINOv3-H+) and three LoRA fine-tunes (DINOv3-L r=8, SimDINOv2-B r8a16, SimDINOv2-L r=8, all seed 0). The smoothing grids are wider than in the original run (beta 0.1 to 16, 1 to 12 iterations), still chosen on validation. The SimDINOv2-B row matches the decoding run to 0.0001 / 0.0000 / 0.0003: 0.4720 / 0.5207 / 0.5362 against 0.4719 / 0.5207 / 0.5359. The probe-arms run reads 0.4718 / 0.5205.
+To make sure this was not specific to SimDINOv2-B, I ran the same split, probe, and tile graph on eight backbones: five frozen (SimDINOv2-B, SimDINOv2-L, DINOv3-B, DINOv3-L, DINOv3-H+) and three LoRA fine-tuned models (DINOv3-L r=8, SimDINOv2-B r8a16, SimDINOv2-L r=8, all seed 0). Here I used wider smoothing grids on validation (beta from 0.1 to 16, 1 to 12 iterations). The SimDINOv2-B row matches the dedicated decoding run to within 0.0001 / 0.0000 / 0.0003 (0.4720 / 0.5207 / 0.5362 vs 0.4719 / 0.5207 / 0.5359; the probe-arms run gave 0.4718 / 0.5205).
 
 | Backbone | Single tile | + mean field | 3x3 mean | 3x3 + mean field | Mean field on 3x3, 95% CI |
 |---|---:|---:|---:|---:|---|
@@ -133,17 +130,16 @@ Same canonical split, same probe, same tile graph, eight backbones: five frozen 
 | SimDINOv2-B + LoRA r8a16, seed 0 | 0.4748 | 0.5184 | 0.5217 | 0.5306 | +0.0089 [-0.005, 0.025] |
 | SimDINOv2-L + LoRA r=8, seed 0 | 0.4808 | 0.5191 | 0.5254 | 0.5349 | +0.0094 [0.003, 0.055] |
 
-- Smoothing a single tile helps on all eight backbones: +0.034 to +0.059 F1, and every interval excludes zero.
-- On top of the 3x3 mean the gain is smaller, +0.009 to +0.015, and excludes zero on five of the eight.
-- After context and smoothing the eight backbones sit between 0.5306 and 0.5394, a 0.009 spread, against 0.4713 to 0.4856 on a single tile (0.014). The spread is smaller after post-processing; no test links the two.
-- Highest point estimate: DINOv3-L frozen, 0.5394. DINOv3-H+ is 0.0014 behind and no paired test between backbones was computed, so this is an ordering of point estimates. The SimDINOv2-B reference reads 0.5362 here and 0.5359 in its own run.
-- On the 3x3 arm, five of the eight rows sit off the boundary; DINOv3-H+ and DINOv3-L still select the maximum number of iterations (12), and the SimDINOv2-B LoRA row selects the maximum beta (16). On the single-tile arm, several rows also sit at a boundary. The smoothing gain may therefore still be under-estimated.
-- The three fine-tuned rows use seed 0 only; the frozen models have one run anyway, so none of these rows carries an inter-seed interval.
-
+- Mean-field smoothing helps on single tiles for all eight backbones (+0.034 to +0.059 F1, every CI excluding zero).
+- Adding smoothing on top of the 3x3 average gives a smaller extra boost (+0.009 to +0.015), with CIs excluding zero on five of the eight backbones.
+- After context and smoothing, all eight backbones fall in a narrow range from 0.5306 to 0.5394 (a 0.009 spread), compared to 0.4713 to 0.4856 on single tiles (0.014). The gap between models shrinks after post-processing, though I did not test that difference formally.
+- The highest point estimate is frozen DINOv3-L at 0.5394, just 0.0014 ahead of DINOv3-H+. No paired tests were run between backbones here, so this is just an ordering of point estimates. The SimDINOv2-B reference is 0.5362 here vs 0.5359 in its own run.
+- On the 3x3 setup, five of the eight models pick interior grid values, while DINOv3-H+ and DINOv3-L still hit the maximum number of iterations (12) and SimDINOv2-B LoRA hits the maximum beta (16). Several single-tile rows also hit a grid boundary, so smoothing gains may still be slightly under-estimated.
+- The three fine-tuned models are single-seed (seed 0) here, and frozen models have only one run, so none of these rows has an inter-seed standard deviation.
 
 ### Does PEFT help under context and smoothing?
 
-Each fine-tuned row above has a frozen counterpart on the same backbone. Paired over the same 9 maps:
+Each fine-tuned model above has a matching frozen backbone. Here are the paired differences over the same 9 test orthomosaics:
 
 | Pair | Single tile, PEFT minus frozen | 3x3 + mean field, PEFT minus frozen | Difference in smoothing gain |
 |---|---|---|---|
@@ -151,43 +147,43 @@ Each fine-tuned row above has a frozen counterpart on the same backbone. Paired 
 | SimDINOv2-B | +0.0028 [-0.011, +0.018] | -0.0056 [-0.051, +0.010] | -0.0065 [-0.052, +0.0003] |
 | SimDINOv2-L | +0.0053 [-0.009, +0.013] | -0.0009 [-0.012, +0.016] | -0.0004 [-0.008, +0.041] |
 
-- On a single tile, PEFT is nominally ahead in all three pairs (+0.003 to +0.006), as the 42-model ranking also shows.
-- After context and smoothing, that advantage is gone and slightly reversed (-0.006 to 0.000). None of the three differences is separable from zero at 9 maps.
-- The smoothing gain itself is not larger for PEFT (from -0.007 to +0.000). So there is no evidence that adaptation adds anything once the neighbourhood is used; the direction is consistent across the three pairs but the design cannot certify it.
+- On single tiles, PEFT is slightly ahead in all three pairs (+0.003 to +0.006), which is consistent with the 42-model leaderboard.
+- Once context and smoothing are applied, that small advantage disappears and slightly flips (-0.006 to 0.000). None of the three differences is statistically different from zero with 9 maps.
+- PEFT does not get a bigger boost from smoothing either (-0.007 to +0.000). In short, there is no evidence that fine-tuning helps once the neighbourhood is used; the direction is consistent across all three pairs, even if 9 maps are not enough to prove it strictly.
 
 ## Learned aggregation
 
 ![Learned aggregation](figures/readme/05_learned_aggregation.png)
 
-- Attention over the 3x3 window reads 0.5085 (seeds 0.4928 to 0.5204) against 0.5205 for the mean: -0.012, CI [-0.044, +0.002].
-- Shuffling the neighbour positions leaves attention at 0.5115 against 0.5085: paired delta -0.0020, CI [-0.006, +0.005], p = 0.36, not separable. The layout is not shown to be used.
-- GATv2 does not separate from a uniform mean on the same graph: -0.0033 with 2 layers (p = 0.64) and +0.0009 with 3 layers (p = 0.82). The intervals still allow GATv2 to be about 0.05 worse.
-- GATv2 does use the edges: rewiring them costs 0.024 (CI [+0.014, +0.033]).
-- In one run, a uniform mean over the graph that includes the unannotated windows reads 0.028 lower than the annotated-only 3x3 mean. The two arms differ in aggregation as well as in input, so the cause is not isolated.
+- Self-attention over the 3x3 window gets 0.5085 (seeds 0.4928 to 0.5204), below the simple 3x3 average at 0.5205 (-0.012, CI [-0.044, +0.002]).
+- Shuffling the neighbour positions inside the 3x3 window leaves attention at 0.5115 vs 0.5085 (paired delta -0.0020, CI [-0.006, +0.005], p = 0.36), so there is no evidence that the attention layer actually exploits spatial layout.
+- On the larger graph that also includes unannotated windows, GATv2 is not significantly different from a uniform graph mean: -0.0033 with 2 layers (p = 0.64) and +0.0009 with 3 layers (p = 0.82), while the CIs still allow GATv2 to be roughly 0.05 worse.
+- GATv2 does rely on the real graph structure: randomly rewiring the edges drops F1 by 0.024 (CI [+0.014, +0.033]).
+- Notice also that the uniform mean on the graph with unannotated windows scores 0.028 lower than the annotated-only 3x3 mean. Because both the input graph and the aggregation differ between those runs, this does not isolate a single cause.
 
 ## Embedding geometry
 
 ![Embedding geometry](figures/readme/06_latent_geometry.png)
 
-Left: for the 35 models in `results/rapport_data/loo_triage.csv`, how often a score orders two models like their F1 does, with the sign and fit learned on the other 34. Recomputed on the clean-baseline F1 values (1,190 pairs); the earlier registry-F1 version is kept as `loo_triage_registry_f1.*`.
+Left panel: across the 35 models in `results/rapport_data/loo_triage.csv`, how often each geometry metric orders a pair of models the same way as their test F1, with the sign and linear fit learned on the other 34 models (leave-one-model-out). These values were recomputed on the clean-baseline F1 scores (1,190 pairs); the earlier version based on registry F1 is preserved in `loo_triage_registry_f1.*`.
 
-- Cluster scores do best: Calinski-Harabasz 69.1%, NC1 68.7%, Fisher ratio 68.6%, Davies-Bouldin 67.1% (grouped with the neighbourhood measures in the figure), silhouette 61.8%. Chance is 50%.
-- Spectral scores are weaker (stable rank 64.0%, participation ratio 63.5%, RankMe 56.6%, effective rank 56.3%; RankMe is an effective-rank score of the embedding matrix). The two transferability scores sit below chance under leave-one-model-out: LogME 44.4% on train (p_BH 0.16, not significant) and 42.7% on test (p_BH 0.046), where the sign fitted on the other models does not transfer (rho_pred -0.39 and -0.31).
-- These scores rank, they do not predict: the error gain over predicting the mean F1 is about 0.0001 at best, on a tier whose F1 range is about 0.04.
-- Pairs share models, so they are not independent. The p-values come from a per-model Wilcoxon test with Benjamini-Hochberg correction inside each family, not from the pair count.
+- Class-separation / cluster metrics do best: Calinski-Harabasz 69.1%, NC1 68.7%, Fisher ratio 68.6%, Davies-Bouldin 67.1% (grouped with neighbourhood metrics in the plot), and silhouette 61.8% (chance is 50%).
+- Spectral metrics are weaker: stable rank 64.0%, participation ratio 63.5%, RankMe 56.6%, effective rank 56.3% (RankMe measures the effective rank of the embedding matrix). The two LogME transferability scores fall below chance under leave-one-model-out: 44.4% on train (p_BH = 0.16, not significant) and 42.7% on test (p_BH = 0.046), because the sign fitted on the remaining models does not generalize (rho_pred = -0.39 and -0.31).
+- In practice, these metrics can roughly rank models, but they do not predict F1 values: the error reduction over just predicting the mean F1 is at most around 0.0001 on a tier whose F1 range is about 0.04.
+- Because model pairs share models, they are not independent. The p-values come from a per-model Wilcoxon test with Benjamini-Hochberg correction inside each metric family, not from the raw pair count.
 
-Middle (exploratory): where SMARTIES-L (frozen, ViT-L, mean-pool; Maxar-RGB and Sentinel-2 projections) sits among the 11 frozen models on six scores, as a rank (1 = lowest value), next to the rank of its F1. SMARTIES is one extraction, is not in the clean baseline and is not among the 35 models: it is drawn on top and enters no percentage on the left.
+Middle panel (exploratory): where frozen SMARTIES-L (ViT-L, mean pooling, tested with both its Maxar-RGB and Sentinel-2 projections) ranks among the 11 frozen models on six geometry scores (1 = lowest value), compared to its F1 rank. SMARTIES is a single extraction outside the clean baseline and outside the 35 models on the left, so it is overlaid separately and does not enter any of the percentages above.
 
-Right: keeping 100 principal components recovers 97.4% to 100.3% of the full-embedding F1 for 5 backbones. The two exploratory SMARTIES-L curves (dashed), run with the same script, sit lower: 96.6% (Maxar-RGB projection) and 93.7% (Sentinel-2 projection) at 100 components, 98.3% and 95.3% at 200.
+Right panel: keeping only the first 100 PCA components retains 97.4% to 100.3% of the full-embedding F1 across 5 backbones. The two exploratory SMARTIES-L curves (dashed), evaluated with the same script, recover a bit less: 96.6% (Maxar-RGB) and 93.7% (Sentinel-2) at 100 components, and 98.3% / 95.3% at 200 components.
 
-SMARTIES-L (Maxar-RGB projection) has the lowest RankMe (17.5; the next lowest is Scale-MAE at 79.5), the lowest stable rank (1.8), the highest anisotropy (0.99) and the lowest k-NN purity (0.58) of the 12 models, together with the highest Fisher ratio (0.34). Its F1 is 0.4206, between SatMAE and Scale-MAE; with the Sentinel-2 projection it is 0.3812, below every frozen model. Four of the six ranks are identical for the two projections while their F1 differ by 0.039, so these scores did not anticipate that gap. Values: `results/rapport_data/geometry_smarties.csv`, `smarties_probe_f1.csv`, `dim_probe_smarties_*.json`.
+With its Maxar-RGB projection, SMARTIES-L has the lowest RankMe (17.5, whereas the next lowest is Scale-MAE at 79.5), the lowest stable rank (1.8), the highest anisotropy (0.99), and the lowest k-NN purity (0.58) of the 12 models, yet the highest Fisher ratio (0.34). Its F1 is 0.4206 (between SatMAE and Scale-MAE), while the Sentinel-2 projection gets 0.3812 (below every frozen model). Four of the six geometry ranks are identical between the two projections even though their F1 differs by 0.039, so those scores did not pick up that gap. Numbers are in `results/rapport_data/geometry_smarties.csv`, `smarties_probe_f1.csv`, and `dim_probe_smarties_*.json`.
 
 ## Data size
 
 ![Data curve](figures/readme/07_data_curve.png)
 
-- LoRA is above the frozen probe at every fraction (+0.005 to +0.023). With 10% of the tiles LoRA reads 0.4725, about the frozen probe on all tiles (0.4712).
-- Spatially blocked subsets are far worse than random ones: 0.099 against 0.426 at 1%, 0.434 against 0.480 at 50%. Blocked 1% subsets contain only 3 to 6 of the 8 main classes. Class coverage and spatial shift are confounded here, and they were not separated.
+- On random subsets, LoRA stays above the frozen probe at every training fraction (+0.005 to +0.023). With only 10% of the training tiles, LoRA reaches 0.4725, roughly matching the frozen probe trained on 100% of the tiles (0.4712).
+- On spatially blocked subsets, performance drops sharply compared to random sampling: 0.099 vs 0.426 at 1%, and 0.434 vs 0.480 at 50%. At 1%, spatially blocked subsets only contain 3 to 6 of the 8 main classes. Note that missing classes and spatial shift are mixed together here and were not separated.
 
 ## Per class
 
@@ -207,22 +203,22 @@ SMARTIES-L (Maxar-RGB projection) has the lowest RankMe (17.5; the next lowest i
 | TUSS | 8,306 | 3,189 | 0.742 | 0.769 |
 | WILL | 4,374 | 546 | 0.486 | 0.460 |
 
-Three classes score exactly zero for these two models (all 3 seeds for the fine-tuned one, a single run for the frozen one). Over all 230 baseline probes the best values are 0.082 (ARCA), 0.026 (DRYI) and 0.146 (RUBC). They are the rarest classes, which pulls macro F1 down for every model, so compare models rather than reading the absolute level. A twelfth class, RHOL, is absent from val and test and is dropped.
+Three classes get an F1 of exactly zero for both models (across all 3 seeds for context fusion, and in the single run for frozen DINOv3-H+). Across all 230 probes in the clean baseline, the highest scores ever reached on those classes are 0.082 (ARCA), 0.026 (DRYI), and 0.146 (RUBC). Because these are the rarest classes, they pull the 11-class macro F1 down for every model, so it makes more sense to compare models relative to each other than to judge the absolute macro F1 alone. A twelfth class (RHOL) does not appear in validation or test and is excluded.
 
 ### The same ranking on the 8 remaining classes
 
 ![8-class view](figures/readme/08_classes_8.png)
 
-The figure shows the 42 configurations and, as red diamonds, the probe-arms, decoding and aggregation arms (each from its own run). The rank-change panel on the right covers the 42 configurations only.
+The scatter plot shows the 42 configurations along with the probe-arms, decoding, and aggregation setups as red diamonds (each from its own run). The rank-change bar chart on the right covers only the 42 configurations.
 
-ARCA, DRYI and RUBC score near zero for every model, so they lower the macro average without separating models. The 8-class view drops them (321 of 17,598 test tiles) and reports the macro F1 over the remaining 8, with the same 11-class classifier: their tiles stay in the test split, so a kept class they are predicted as counts as a false positive, and a kept tile predicted as one of the three counts as a false negative. The three classes are simply not scored. This is the convention of the `f1_macro_8cls_test` field that each training run writes. It is not a refit on 8 classes. Refits on the 8 classes exist from an earlier campaign, but they follow a different protocol and are not used here. Note also that `f1_8cls` fields in `recipe_comparisons.json` and `gnn_canonical.json` use the other convention (they remove the 321 tiles before scoring, about +0.006); this table and the figure use the convention described above.
+Since ARCA, DRYI, and RUBC stay close to zero for all models, they lower macro F1 without really helping separate models. The 8-class view leaves them out of the macro average (321 out of 17,598 test tiles) while keeping the exact same 11-class classifier: their tiles remain in the test set, so a kept class predicted on those tiles still counts as a false positive, and a kept tile predicted as one of those three still counts as a false negative. Those three classes are simply excluded from the mean. This matches the `f1_macro_8cls_test` convention logged by training runs, and is not a classifier retrained on 8 classes (earlier 8-class refits used a different protocol and are not used here). Note also that `f1_8cls` in `recipe_comparisons.json` and `gnn_canonical.json` removes the 321 tiles before scoring, which is roughly +0.006 higher; the table and figure below use the first convention.
 
-- The level rises by about 0.18 (median +0.179): the 42 configurations span 0.3547 to 0.5079 in 11 classes and 0.4805 to 0.6984 in 8 classes.
-- The order barely moves: Spearman 0.991, Kendall 0.965. 26 models keep their rank, 10 move one place, 4 move two, and 2 move three or more.
-- The two movers are DINOv3-B with full fine-tuning (9 places down) and DINOv3-B with attention only (3 places down). The difference between the two rankings comes entirely from the three dropped classes, which weigh 3/11 of the 11-class average. DINOv3-B full has the highest ARCA score of the 42 (0.039), worth about +0.0035 on its own. Nine models have a non-zero ARCA score, none above 0.040.
-- The best recipe (3x3 mean + mean field) reads 0.5359 in 11 classes and 0.7369 in 8 classes.
+- Dropping the three rare classes raises macro F1 by about 0.18 (median +0.179): the 42 configurations go from 0.3547–0.5079 (11 classes) to 0.4805–0.6984 (8 classes).
+- The model ordering almost does not change: Spearman 0.991, Kendall 0.965. 26 models keep the exact same rank, 10 move by 1 place, 4 by 2 places, and only 2 move by 3 or more.
+- Those two models are DINOv3-B with full fine-tuning (9 places down) and DINOv3-B with attention-only tuning (3 places down). That shift comes entirely from the three dropped classes, which account for 3/11 of the 11-class average: DINOv3-B full has the highest ARCA F1 among the 42 models (0.039, worth about +0.0035 in macro F1). Only nine models get a non-zero ARCA score, and none exceeds 0.040.
+- The best recipe (3x3 mean + mean field) gets 0.5359 in 11 classes and 0.7369 in 8 classes.
 
-Rows are sorted by 8-class F1, ascending; the last column gives the run each value comes from.
+Rows are sorted by ascending 8-class F1; the last column indicates which run each value comes from.
 
 | Arm | 11 classes | 8 classes | Run |
 |---|---:|---:|---|
@@ -239,65 +235,65 @@ Rows are sorted by 8-class F1, ascending; the last column gives the run each val
 | 3x3 mean + ICM | 0.5332 | 0.7331 | decoding |
 | 3x3 mean + mean field | 0.5359 | 0.7369 | decoding |
 
-These arms are plotted as red diamonds in the figure above. Single tile reads 0.6488 in the 42-configuration table (clean baseline) and 0.6489 here (decoding run).
+These setups correspond to the red diamonds in the figure above. Single tile is 0.6488 in the 42-configuration table (clean baseline) and 0.6489 here (decoding run).
 
 ## Protocol
 
 | Item | Value |
 |---|---|
 | Data | Arctic-TVC, drone orthomosaics at about 2.2 mm/px, Trail Valley Creek, NWT. [doi:10.20383/103.01418](https://doi.org/10.20383/103.01418) |
-| Split | By whole orthomosaic, no tile leakage: 15 train, 8 val, 9 test. 49,281 / 13,209 / 17,598 tiles |
+| Split | By whole orthomosaic (no tile leakage): 15 train, 8 val, 9 test (49,281 / 13,209 / 17,598 tiles) |
 | Classes | 11 (RHOL removed). Metric: macro F1 over the 11 classes |
-| Probe | Multinomial logistic regression (lbfgs), C in {1e-4, 1e-3, 0.01, 0.1, 1, 10} chosen on val |
-| Intervals | Paired hierarchical bootstrap, orthomosaic then tile, 10,000 replicates, Benjamini-Hochberg across the pairs of a pre-declared family |
-| Determinism | seed 42, single-thread BLAS (the thread count alone shifts F1 by about 0.0015) |
+| Probe | Multinomial logistic regression (lbfgs), C in {1e-4, 1e-3, 0.01, 0.1, 1, 10} selected on val |
+| Intervals | Paired hierarchical bootstrap (orthomosaic then tile), 10,000 replicates, Benjamini-Hochberg within a pre-declared family |
+| Determinism | seed 42, single-thread BLAS (changing the BLAS thread count alone shifts F1 by about 0.0015) |
 
 ## Ongoing work
 
-The work in progress, in order of current effort, is about whether the conclusions above travel outside Arctic-TVC.
+The follow-up work currently in progress focuses on whether these findings generalize beyond Arctic-TVC:
 
-- **A second dataset, Léo.** Four aerial sites, about 355k nadir tiles at 224 px. It is an external validation set, not another training corpus for the benchmark above. No number from it is reported in this README yet.
-- **SSL pretraining on Léo.** `leo-explora-ssl/` adapts a SimDINOv2-B/16 checkpoint to Léo tiles with an ExPLoRA recipe (LoRA on the first blocks, DINO + iBOT + KoLeo, EMA teacher, three seeds), then probes the adapted features back on Arctic-TVC. Result so far, negative: on Arctic-TVC the adapted features sit below the frozen SimDINOv2-B at every one of the 10 checkpoints (epochs 5 to 50, mean of 3 seeds) with the 3x3 context view (-0.002 to -0.013 against 0.4932) and with the fused view (-0.007 to -0.017 against 0.5059). The single-tile view climbs back to parity (+0.0005 at epoch 50, against 0.4721). The frozen reference is one deterministic run, so no paired interval exists and the 10-of-10 pattern is the only argument. The 50-epoch run may be under-trained, so this does not rule out a longer one. Numbers: `results/leo_explora_ssl/`.
-- **Domain shift.** A first pilot found that a distribution discrepancy score (MMD, optimal transport) is associated with transfer, and the association replicated in a second experiment. I could not show that it adds value over RankMe, so I do not claim it. Training with an alignment loss is on hold until a discrepancy score shows value beyond RankMe.
-- **Wider screening.** First frozen scores for three additional foundation models are below DINOv3 (0.4805): SigLIP 2 ViT-B/16 0.4475, SatlasPretrain Aerial SwinB 0.4373, C-RADIO v4-H 0.3764. Not all three are Earth-observation models. They are single-seed and not in the ranking, and preprocessing differs (Satlas normalisation assumed to be ImageNet, C-RADIO run at 224 px instead of its native 512), so this is not a like-for-like comparison.
+- **A second dataset (Léo).** Four aerial sites in southern Québec, about 355k nadir tiles at 224 px. I use it as an external validation dataset, not as extra training data for the benchmark above. No results from it are reported in this README yet.
+- **Self-supervised pretraining on Léo.** `leo-explora-ssl/` adapts a SimDINOv2-B/16 checkpoint on Léo tiles using an ExPLoRA-style recipe (LoRA on early blocks, DINO + iBOT + KoLeo, EMA teacher, 3 seeds) and probes the resulting checkpoints back on Arctic-TVC. So far the result is negative: across all 10 checkpoints (epochs 5 to 50, mean of 3 seeds), the adapted features stay below frozen SimDINOv2-B in both the 3x3 context view (-0.002 to -0.013 vs 0.4932) and the fused view (-0.007 to -0.017 vs 0.5059). On single tiles, it only catches up to parity by epoch 50 (+0.0005 vs 0.4721). Since the frozen baseline is a single deterministic run, there is no paired CI here and the consistent 10-out-of-10 pattern is the main evidence. A 50-epoch run may still be under-trained, so a longer run is not ruled out. Results: `results/leo_explora_ssl/`.
+- **Domain shift.** A first pilot found a correlation between distribution discrepancy (MMD, optimal transport) and transfer performance, and that association replicated in a second experiment. However, I could not show that discrepancy adds information beyond RankMe, so I do not make any claim about it yet. Discrepancy-guided alignment is on hold until a discrepancy score shows clear incremental value over RankMe.
+- **Broader model screening.** Initial frozen probes for three extra foundation models all score below DINOv3-H+ (0.4805): SigLIP 2 ViT-B/16 at 0.4475, SatlasPretrain Aerial SwinB at 0.4373, and C-RADIO v4-H at 0.3764. Not all three are Earth-observation models, they are single-seed and outside the canonical ranking, and their preprocessing is not yet fully aligned (ImageNet normalization assumed for Satlas; C-RADIO evaluated at 224 px instead of its native 512 px), so this is not a fair head-to-head comparison yet.
 
-The domain-shift reports (P0 pilot and P1 replication) are local only. The scalar results behind the sections above are in the repository.
+The domain-shift reports (P0 pilot and P1 replication) are kept locally only. All scalar outputs supporting the sections above are committed in this repository.
 
 ## Limits
 
-- 9 test maps cap what can be shown. Intervals are wide, and the percentile intervals are not centred on the estimate (for example +0.0152 with CI [+0.006, +0.062]). Read them as "excludes zero or not", not as a precision. No equivalence test was run: with 9 maps the design resolves differences of roughly 0.03 to 0.05, and smaller differences are unresolved, not shown equal. For some pairs the interval and the p-value disagree (fine-tuned ResNet-50 ImageNet against the best frozen model: CI [-0.061, -0.015], p = 0.094, q = 0.22). I report the Benjamini-Hochberg decision defined in the protocol: this pair does not survive.
-- Model scores in the ranking and adaptation sections come from the clean baseline (2026-10-08), and the geometry section now uses the same clean-baseline F1; the earlier registry-F1 version is kept as `loo_triage_registry_f1.*`. The context, smoothing and aggregation sections come from their own runs: the same frozen single-tile SimDINOv2-B/16 reads 0.4718 to 0.4720 across the runs, and the 3x3 mean reads 0.5205 and 0.5207. Comparisons are paired within a run.
-- Frozen models have one run each, so their seed SD is not defined.
-- Context and smoothing are measured on eight backbones (five frozen, three LoRA at seed 0). GATv2 and the learned aggregation arms are measured on SimDINOv2-B/16 only.
-- Invalid ExPLoRA runs and the deprecated single-seed fine-tunes (resnet50_arctic, vitb16_arctic, vitb16_fulft_arctic) are excluded. The `_old` keys that remain in the table are the 3-seed SOTA-screening runs, not the deprecated ones. `tests/test_repo_guards.py` checks the manuscript for a few retired values; it does not cover this README.
+- Having only 9 test orthomosaics limits statistical power. Confidence intervals are wide, and percentile intervals are not symmetric around the point estimate (for instance +0.0152 with CI [+0.006, +0.062]). They should be read mainly as "excludes zero or not" rather than as tight error bars. I did not run equivalence tests: with 9 maps, this setup can reliably detect differences of about 0.03 to 0.05, while smaller gaps remain unresolved rather than proven equal. For a few pairs, the CI and p-value disagree (e.g., fine-tuned ResNet-50 ImageNet vs best frozen: CI [-0.061, -0.015], p = 0.094, q = 0.22); following the protocol, I report the Benjamini-Hochberg decision, so that pair does not pass.
+- Scores in the ranking, adaptation, and geometry sections come from the clean baseline (2026-10-08); the earlier registry-F1 geometry file is kept as `loo_triage_registry_f1.*`. The context, smoothing, and aggregation results come from their own runs: frozen single-tile SimDINOv2-B/16 varies slightly between 0.4718 and 0.4720 across runs, and the 3x3 mean is 0.5205 or 0.5207. Every paired comparison is computed within the same run.
+- Frozen backbones are deterministic single runs, so seed SD is not defined for them.
+- Context and smoothing are tested across eight backbones (five frozen, three LoRA at seed 0). GATv2 and the other learned aggregation variants are tested on SimDINOv2-B/16 only.
+- Invalid ExPLoRA runs and deprecated single-seed fine-tunes (`resnet50_arctic`, `vitb16_arctic`, `vitb16_fulft_arctic`) are excluded. The `_old` keys still present in the baseline are 3-seed SOTA-screening runs, not those deprecated ones. Note that `tests/test_repo_guards.py` checks the LaTeX manuscript for retired values, not this README.
 
 ## Reproduce
 
-A clone contains the code, the configs, the 11-class splits and the scalar tables behind every number below. It does not contain the raw orthomosaics (public, FRDR), the 224 px tiles, the extracted embeddings, or the model weights (some are gated).
+Cloning this repository gives you all the code, configs, 11-class splits, and scalar tables needed to verify every number above. The raw orthomosaics (public on FRDR), 224 px tile images, extracted embeddings, and model weights (some gated) are not included.
 
-From a clone, all ten figures are rebuilt and every number can be checked against the committed tables:
+From a fresh clone, you can rebuild all ten figures directly from the committed tables:
 
 ```bash
 pip install -r requirements.txt          # or the pinned versions in requirements-lock.txt
 python scripts/make_readme_plots.py      # rebuilds all ten figures from results/
 ```
 
-The full pipeline starts from raw rasters. It needs the Arctic-TVC download, a tiling step, and a GPU for fine-tuning:
+Running the full pipeline from scratch requires downloading Arctic-TVC, tiling the orthomosaics, and a GPU for fine-tuning:
 
 ```bash
-# the 12-class CSVs are committed; this regenerates the 11-class ones
+# 12-class split CSVs are committed; this regenerates the 11-class splits
 python scripts/generate_splits_11cls.py --splits-dir splits --out-dir splits --force
 
-# embeddings and the canonical probe
+# feature extraction and canonical linear probe
 python extract.py --config configs/frozen_dinov3_lvd.yaml
 python probe.py   --config configs/frozen_eval.yaml
 python analyze.py --config configs/frozen_eval.yaml
 ```
 
-Two things to know:
+Two practical notes:
 
-- The committed splits are canonical. They come from `splits/split_v3_assignment.json` (15 / 8 / 9 orthomosaics, verified against the CSVs). Both the 12-class and the 11-class CSVs are included, and the command above regenerates the 11-class files byte-identically from the 12-class ones. The tile-to-CSV step is not included in this repository: it needs the raw tiles, and the scripts used for it are not published.
-- Fine-tuning needs GPUs and the gated weights. The fine-tuned scores are committed seed by seed in `results/baseline_clean_2026-10-08/per_seed.csv`, so no GPU is needed to check them.
+- The committed splits are the canonical ones, generated from `splits/split_v3_assignment.json` (15 / 8 / 9 orthomosaics, verified against the CSVs). Both 12-class and 11-class CSVs are included, and the command above reproduces the 11-class CSVs byte-for-byte from the 12-class ones. The raw raster tiling scripts are not published in this repo.
+- Fine-tuning requires GPUs and access to gated weights. Per-seed fine-tuned scores are committed in `results/baseline_clean_2026-10-08/per_seed.csv`, so you do not need a GPU to verify the tables or regenerate the figures.
 
 ## Where the numbers come from
 
@@ -315,8 +311,8 @@ Two things to know:
 | PEFT against its frozen backbone | paired differences | `results/tile_context_2026-11-01/peft_pairs.csv` |
 | Deployable or upper bound | flag per configuration | `results/baseline_clean_2026-10-08/summary.csv` |
 
-Two 8-class conventions exist in the committed files. `arms_8cls.csv` and `per_class_f1.csv` keep the 321 dropped-class test tiles, which is the convention of the `f1_macro_8cls_test` field written by each run. The `f1_8cls` fields in `recipe_comparisons.json` and `gnn_canonical.json` remove those tiles before scoring, which is about 0.006 higher. The README table and figure use the first.
+Two 8-class scoring conventions appear in the committed files: `arms_8cls.csv` and `per_class_f1.csv` keep the 321 test tiles from the three dropped classes (matching `f1_macro_8cls_test`), whereas `f1_8cls` in `recipe_comparisons.json` and `gnn_canonical.json` removes those tiles before scoring (about +0.006 higher). The README table and figures use the first convention.
 
-Code map: `src/` package, the `extract.py` / `probe.py` / `train.py` / `analyze.py` entry points, `configs/` YAML, `scripts/` analysis and SLURM jobs, `research/gnn_grid_2026-10-31/code/` tile context, smoothing and GNN experiments, `results/` scalar outputs.
+Repository layout: `src/` core package, `extract.py` / `probe.py` / `train.py` / `analyze.py` entry points, `configs/` YAML configs, `scripts/` analysis and SLURM scripts, `research/gnn_grid_2026-10-31/code/` tile context, smoothing and GNN code, and `results/` scalar outputs.
 
-Arctic-TVC is public on FRDR under its own licence ([doi:10.20383/103.01418](https://doi.org/10.20383/103.01418)). Code (Python, YAML, Makefile, CI) is released under the [MIT License](LICENSE); figures and result tables (PNG, PDF, JSON, CSV) are released under [CC-BY-4.0](LICENSE-DATA). Citation metadata is provided in [CITATION.cff](CITATION.cff).
+Arctic-TVC is publicly available on FRDR under its own licence ([doi:10.20383/103.01418](https://doi.org/10.20383/103.01418)). Code (Python, YAML, Makefile, CI) is under the [MIT License](LICENSE); figures and result tables (PNG, PDF, JSON, CSV) are under [CC-BY-4.0](LICENSE-DATA). Citation metadata is in [CITATION.cff](CITATION.cff).
