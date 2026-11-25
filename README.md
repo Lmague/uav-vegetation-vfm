@@ -1,6 +1,6 @@
 # Arctic-TVC: foundation models for tundra vegetation mapping
 
-[![CI](https://github.com/Lmague/benchmark-memoire/actions/workflows/ci.yml/badge.svg)](https://github.com/Lmague/benchmark-memoire/actions/workflows/ci.yml)
+[![CI](https://github.com/Lmague/uav-vegetation-vfm/actions/workflows/ci.yml/badge.svg)](https://github.com/Lmague/uav-vegetation-vfm/actions/workflows/ci.yml)
 [![Dataset DOI](https://img.shields.io/badge/Arctic--TVC-10.20383%2F103.01418-teal.svg)](https://doi.org/10.20383/103.01418)
 
 Code and results for my M.Sc. thesis in computer science (AI) at UQAM, supervised by Mohamed Bouguessa (ML) and Étienne Laliberté (ecology).

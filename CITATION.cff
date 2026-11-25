@@ -6,7 +6,7 @@ authors:
   - family-names: Magué
     given-names: Lazare
     affiliation: "Université du Québec à Montréal (UQAM)"
-repository-code: "https://github.com/Lmague/benchmark-memoire"
+repository-code: "https://github.com/Lmague/uav-vegetation-vfm"
 license: MIT
 keywords:
   - arctic-tundra
