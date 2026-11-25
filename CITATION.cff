@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+title: "Arctic-TVC: Foundation Models for Tundra Vegetation Mapping"
+message: "If you use this benchmark, code, or result tables, please cite this repository."
+type: software
+authors:
+  - family-names: Magué
+    given-names: Lazare
+    affiliation: "Université du Québec à Montréal (UQAM)"
+repository-code: "https://github.com/Lmague/benchmark-memoire"
+license: MIT
+keywords:
+  - arctic-tundra
+  - vegetation-mapping
+  - vision-foundation-models
+  - remote-sensing
+  - drone-imagery
+  - dinov3
+  - lora
+  - mean-field-smoothing
+references:
+  - type: data
+    title: "Arctic-TVC UAV Vegetation Orthomosaics"
+    doi: "10.20383/103.01418"
+    url: "https://doi.org/10.20383/103.01418"

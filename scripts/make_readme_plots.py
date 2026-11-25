@@ -3,12 +3,13 @@
 Every number is read from a result file at run time, nothing is typed in by hand.
 
 Sources (relative to the repository root):
-    results/baseline_clean_2026-10-08/{per_seed.csv,statistics/pairwise_effects.csv}
+    results/baseline_clean_2026-10-08/{per_seed.csv,per_class_f1.csv,statistics/pairwise_effects.csv}
     results/tile_context_2026-11-01/{canonical_probe_arms,recipe_ablation,recipe_comparisons,
         r3_vs_r2_bootstrap,gnn_canonical,strata,neighbourhood_scale}.json
     results/rapport_data/{loo_triage,dim_probe_summary}.csv
     results/datacurve_lora/{results_agg,frozen_probe_results_agg}.csv
     lora_spatial_v2/results_spatial_summary.csv
+    splits/{train,test}_11cls.csv
 
 Output: figures/readme/*.png
 
@@ -297,15 +298,10 @@ def fig_adaptation():
         ("3x3 mean + mean field", abl["R3"]["mf"]["test"], COL["nbr"]),
     ]
 
-    n = len(rows) + len(extra) + 2  # kept for the old offset expressions
-    fig, ax = plt.subplots(figsize=(8.8, 7.0))
+    fig, ax = plt.subplots(figsize=(9.0, 7.4))
     ax.axvline(frozen, color=COL["frozen"], ls="--", lw=1.2, zorder=1)
-    ax.text(frozen - 0.0008, -0.45, f"frozen {frozen:.4f}", color=COL["frozen"], fontsize=8.5,
-            ha="right", va="center")
     best_adapt = sc.loc[rows[-1], "mean"]
-    ax.axvline(best_adapt, color=COL["lora"], ls=":", lw=1, zorder=1)
-    ax.text(best_adapt + 0.0008, -0.45, f"best adaptation {best_adapt:.4f}", color=COL["lora"],
-            fontsize=8.5, ha="left", va="center")
+    ax.axvline(best_adapt, color=COL["lora"], ls=":", lw=1.1, zorder=1)
 
     labels = []
     for i, k in enumerate(rows):
@@ -315,22 +311,37 @@ def fig_adaptation():
         ax.scatter([sc.loc[k, "mean"]], [i], s=60, color=c, edgecolor="white", linewidth=0.7, zorder=3)
         labels.append(LABELS[k].replace("SimDINOv2-B, ", ""))
     y0 = len(rows) + 1.4
-    ax.text(0.463, y0, "Neighbourhood and smoothing, same backbone", fontsize=9,
-            fontweight="bold", color=COL["ink"], va="center")
+    ax.text(0.4555, y0, "Neighbourhood and smoothing, same backbone", fontsize=9,
+            fontweight="bold", color=COL["ink"], va="center",
+            bbox=dict(facecolor="white", edgecolor="none", pad=1.5), zorder=4)
     extra_y = []
     for j, (lab, val, c) in enumerate(extra):
         y = y0 + 0.9 + j
         extra_y.append(y)
         ax.scatter([val], [y], s=62, color=c, marker="D", edgecolor="white", linewidth=0.7, zorder=3)
         labels.append(lab)
+    top_y = extra_y[-1]
+    ax.text(frozen - 0.001, top_y, f"frozen {frozen:.4f}", color=COL["frozen"], fontsize=8.5,
+            ha="right", va="center", bbox=dict(facecolor="white", edgecolor="none", pad=1.0), zorder=4)
+    ax.text(best_adapt + 0.001, -0.55, f"best adaptation {best_adapt:.4f}", color=COL["lora"],
+            fontsize=8.5, ha="left", va="center", bbox=dict(facecolor="white", edgecolor="none", pad=1.0), zorder=4)
     ax.set_yticks(list(range(len(rows))) + extra_y)
     ax.set_yticklabels(labels, fontsize=9)
-    ax.set_ylim(-0.9, y0 + len(extra) + 0.8)
-    ax.set_xlim(0.462, 0.545)
+    ax.set_ylim(-1.05, top_y + 0.85)
+    ax.set_xlim(0.454, 0.546)
     ax.set_xlabel("macro F1, 11 classes, test split (dots: seeds, large dot: mean)")
     ax.grid(axis="y", visible=False)
     ax.set_title(f"Adaptation: best {best_adapt - frozen:+.3f}; context and smoothing: {extra[-1][1] - frozen:+.3f}")
-    fig.subplots_adjust(left=0.30)
+    from matplotlib.lines import Line2D
+    handles = [
+        Line2D([], [], marker="o", ls="", color=COL["lora"], label="LoRA"),
+        Line2D([], [], marker="o", ls="", color=COL["attn"], label="attention / norm"),
+        Line2D([], [], marker="o", ls="", color=COL["full"], label="full fine-tuning"),
+        Line2D([], [], marker="D", ls="", color=COL["nbr"], label="context / smoothing"),
+        Line2D([], [], marker="D", ls="", color=COL["scratch"], label="GATv2"),
+    ]
+    ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.105), ncol=5, fontsize=8.2, frameon=False)
+    fig.subplots_adjust(left=0.30, bottom=0.17)
     fig.text(0.30, 0.01, "Diamonds: neighbourhood and smoothing arms from their own runs (same split, same backbone). "
              "Vertical dotted line: best single-tile adaptation.", fontsize=8, color=COL["grey"], va="bottom")
     save(fig, "02_adaptation_regimes.png")
@@ -419,10 +430,10 @@ def fig_smoothing():
     for yy, g in zip(y, grid):
         b.scatter([g["test"]], [yy], s=62, color=COL["nbr"], edgecolor="white", linewidth=0.7, zorder=3)
         b.hlines(yy, sc["base_test"], g["test"], color=COL["nbr"], alpha=0.3, lw=1.2)
-        b.text(g["test"] + 0.002, yy, f"{g['test']:.4f}  ({g['voisins_moyens']:.1f} nbrs)", va="center", fontsize=8.5)
+        b.text(g["test"] + 0.0045, yy, f"{g['test']:.4f}  ({g['voisins_moyens']:.1f} nbrs)", va="center", fontsize=8.5)
     b.set_yticks(y)
     b.set_yticklabels([lab[g["scale"]] for g in grid], fontsize=9)
-    b.set_xlim(0.45, 0.60)
+    b.set_xlim(0.45, 0.615)
     b.set_ylim(-0.6, len(grid) - 0.1)
     b.grid(axis="y", visible=False)
     b.set_xlabel("macro F1, single tile + mean field")
@@ -481,6 +492,68 @@ def fig_gnn():
 
 
 # --------------------------------------------------------------------------- 6. latent geometry
+SMARTIES_SCORES = [("chi", "Calinski-Harabasz"), ("fisher_ratio", "Fisher ratio"),
+                   ("knn_purity", "k-NN purity"), ("rankme_sigma_raw", "RankMe"),
+                   ("stable_rank", "Stable rank"), ("aniso_cosine", "Anisotropy")]
+SMARTIES_CELLS = {"Maxar-RGB projection": "smarties_vitl16_rgb_mean",
+                  "Sentinel-2 projection": "smarties_vitl16_s2_mean"}
+
+
+def _smarties_layer():
+    """Exploratory SMARTIES layer of figure 06, or None if its small tables are absent.
+
+    SMARTIES is not in the clean baseline and not among the 35 models of loo_triage.csv: its points are
+    drawn on top and never enter the percentages. Tables (all in results/rapport_data/): geometry_smarties.csv
+    (same code and columns as geometry_models.csv), smarties_probe_f1.csv, dim_probe_smarties_*.json
+    (same script as dim_probe_*.json). Without them the figure is the original two-panel one.
+    """
+    rd = RES / "rapport_data"
+    if not all((rd / f).exists() for f in ("geometry_smarties.csv", "smarties_probe_f1.csv",
+                                           "geometry_models.csv")):
+        return None
+    geo = pd.read_csv(rd / "geometry_models.csv").set_index("model")
+    sm = pd.read_csv(rd / "geometry_smarties.csv").set_index("model")
+    f1s = pd.read_csv(rd / "smarties_probe_f1.csv").set_index("model")["f1_macro_all"]
+    fro = sorted(FROZEN_KEYS)
+    base = baseline_scores()["mean"]
+
+    def rank(v, ref):                       # 1 = lowest value among the 11 frozen models + the cell
+        return 1 + int((np.asarray(ref, dtype=float) < v).sum())
+
+    ranks, curves = {}, {}
+    for lab, c in SMARTIES_CELLS.items():
+        r = {col: rank(sm.loc[c, col], geo.loc[fro, col]) for col, _ in SMARTIES_SCORES}
+        r["f1"] = rank(f1s[c], base.loc[fro])
+        ranks[lab] = r
+        f = rd / f"dim_probe_{c}.json"
+        if f.exists():
+            j = json.loads(f.read_text())
+            full = max(j, key=lambda e: e["k"])["test_f1"]
+            curves[lab] = {e["k"]: e["test_f1"] / full * 100 for e in j}
+    return {"ranks": ranks, "curves": curves, "n": len(fro) + 1}
+
+
+def _plot_smarties_ranks(ax, lay):
+    ys = np.arange(len(SMARTIES_SCORES))[::-1]
+    n = lay["n"]
+    for lab, r in lay["ranks"].items():
+        maxar = lab.startswith("Maxar")
+        dy = 0.14 if maxar else -0.14       # small vertical offset: equal ranks must not hide each other
+        ax.plot([r[c] for c, _ in SMARTIES_SCORES], ys + dy, ls="none", marker="o", ms=8,
+                mfc=COL["ink"] if maxar else "white", mec=COL["ink"], mew=1.4,
+                label=f"score rank, {lab.split()[0]}")
+        ax.axvline(r["f1"], color=COL["nbr"], lw=1.3, ls="--" if maxar else ":",
+                   label=f"F1 rank, {lab.split()[0]}")
+    ax.set_yticks(ys)
+    ax.set_yticklabels([nm for _, nm in SMARTIES_SCORES], fontsize=9)
+    ax.set_xlim(0.5, n + 0.5)
+    ax.set_xticks(range(1, n + 1))
+    ax.set_xlabel(f"rank among {n} models (1 = lowest value)")
+    ax.grid(axis="y", visible=False)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.17), ncol=2, fontsize=8)
+    ax.set_title("SMARTIES-L vs the 11 frozen models")
+
+
 def fig_latent():
     d = pd.read_csv(RES / "rapport_data" / "loo_triage.csv")
     nm = {"fisher_ratio": "Fisher ratio", "silhouette": "Silhouette", "chi": "Calinski-Harabasz",
@@ -492,7 +565,12 @@ def fig_latent():
     fam = {"séparabilité": ("Class separation", COL["frozen"]), "voisinage": ("Neighbourhood", "#7FA7D6"),
            "spectrale": ("Spectral", COL["lora"]), "transférabilité": ("Transferability", COL["grey"])}
     d = d.sort_values("pair_acc_loo")
-    fig, (a, b) = plt.subplots(1, 2, figsize=(11.2, 4.9), gridspec_kw={"width_ratios": [1.15, 1]})
+    lay = _smarties_layer()
+    ncols = 3 if lay else 2
+    fig, axs = plt.subplots(1, ncols, figsize=(11.2 if ncols == 2 else 17.4, 4.9),
+                            gridspec_kw={"width_ratios": [1.15, 1] if ncols == 2 else [1.15, 1, 1],
+                                         "wspace": 0.28 if ncols == 2 else 0.46})
+    a, b = axs[0], axs[-1]
     y = np.arange(len(d))
     a.barh(y, d["pair_acc_loo"] * 100, color=[fam[f][1] for f in d["family"]], height=0.66)
     a.axvline(50, color=COL["ink"], lw=1, ls="--")
@@ -517,6 +595,13 @@ def fig_latent():
     for c, (_, r) in zip(pal, dp.iterrows()):
         b.plot(ks, [r[f"f1_k{k}"] / r["f1_full"] * 100 for k in ks], marker="o", ms=4.5, lw=1.5,
                color=c, label=pretty[r["model"]])
+    if lay:
+        for lab, col, ls in (("Maxar-RGB projection", COL["ink"], "--"),
+                             ("Sentinel-2 projection", COL["grey"], ":")):
+            cv = lay["curves"].get(lab)
+            if cv:
+                b.plot(ks, [cv[k] for k in ks], marker="s", ms=4.5, lw=1.5, ls=ls, color=col,
+                       label=f"SMARTIES-L, {lab.split()[0]}")
     b.axhline(100, color=COL["grey"], lw=1, ls="--")
     b.set_xscale("log")
     b.set_xticks(ks)
@@ -527,6 +612,8 @@ def fig_latent():
     b.set_ylabel("% of full-embedding F1")
     b.legend(fontsize=8.5, loc="lower right")
     b.set_title("Most of the F1 sits in ~100 dimensions")
+    if lay:
+        _plot_smarties_ranks(axs[1], lay)
     save(fig, "06_latent_geometry.png")
 
 
@@ -624,7 +711,7 @@ def fig_classes8():
     a.scatter([sc.loc["dinov3_vith16plus_lvd", "f11"]], [sc.loc["dinov3_vith16plus_lvd", "f8"]],
               s=120, facecolor="none", edgecolor=COL["ink"], linewidth=1.1, zorder=4,
               label="best frozen (DINOv3-H+)")
-    labels = {"ctxdistill_dB_tL": (-7, 8, False), "dinov3_vitb16_lvd_full": (34, -30, True),
+    labels = {"ctxdistill_dB_tL": (12, -26, True), "dinov3_vitb16_lvd_full": (34, -30, True),
               "vitb16_scratch_old": (6, 0, False)}
     for k, (dx, dy, arrow) in labels.items():
         a.annotate(LABELS[k], (sc.loc[k, "f11"], sc.loc[k, "f8"]), xytext=(dx, dy),
@@ -635,11 +722,16 @@ def fig_classes8():
     if len(arms):
         a.scatter(arms.f11, arms.f8, s=58, marker="D", color=COL["nbr"], edgecolor="white",
                   linewidth=0.7, zorder=3, label="probe-arms, decoding, aggregation")
+        top_arm = arms.loc[arms["f8"].idxmax()]
+        a.annotate(top_arm["label"], (top_arm["f11"], top_arm["f8"]), xytext=(-16, 4),
+                   textcoords="offset points", fontsize=8, color=COL["nbr"], ha="right", va="center",
+                   arrowprops=dict(arrowstyle="-", lw=0.8, color=COL["nbr"]))
 
     a.set_xlim(0.345, 0.548)
+    a.set_ylim(0.465, 0.76)
     a.set_xlabel("macro F1, 11 classes")
     a.set_ylabel("macro F1, 8 classes")
-    a.legend(loc="upper left", bbox_to_anchor=(0.0, 0.80), fontsize=8.5)
+    a.legend(loc="upper left", bbox_to_anchor=(0.0, 0.99), fontsize=8.5)
     a.text(0.98, 0.03, f"Spearman {rho.statistic:.3f}, Kendall {kendalltau(sc.f11, sc.f8).statistic:.3f}.\n"
            f"Median gain {(sc.f8 - sc.f11).median():+.3f}.", transform=a.transAxes,
            fontsize=8.5, va="bottom", ha="right", color=COL["grey"])
@@ -658,8 +750,9 @@ def fig_classes8():
     b.set_ylim(0, max(counts) * 1.28)
     b.grid(axis="x", visible=False)
     big = move[move.abs() >= 3].sort_values(key=lambda x: -x.abs())
-    txt = "\n".join(f"{LABELS[k]}: {int(v):+d}" for k, v in big.items())
-    b.text(0.98, 0.72, txt, transform=b.transAxes, ha="right", va="top", fontsize=8.5, color=COL["ink"])
+    fmt_move = lambda v: f"{abs(int(v))} ranks {'down' if v > 0 else 'up'}"
+    txt = "\n".join(f"{LABELS[k]}: {fmt_move(v)}" for k, v in big.items())
+    b.text(0.98, 0.74, txt, transform=b.transAxes, ha="right", va="top", fontsize=8.5, color=COL["ink"])
     b.set_title("Ranking is preserved for 40 of 42")
     save(fig, "08_classes_8.png")
 
@@ -736,6 +829,103 @@ def fig_multibackbone():
              va="bottom", ha="center")
     save(fig, "09_multibackbone.png")
 
+
+# --------------------------------------------------------------------------- 10. per-class F1 & support
+CLS_11 = ["ALDE", "ARCA", "BIRC", "DRYI", "LICH", "MOSS", "PETF", "RUBC", "SEDG", "TUSS", "WILL"]
+
+
+def fig_per_class():
+    pc = pd.read_csv(BASE / "per_class_f1.csv")
+    tr = pd.read_csv(ROOT / "splits" / "train_11cls.csv")["label"].value_counts()
+    te = pd.read_csv(ROOT / "splits" / "test_11cls.csv")["label"].value_counts()
+
+    f_h = pc[pc["key"] == "dinov3_vith16plus_lvd"].groupby("class")["f1_test"].mean()
+    f_cf = pc[pc["key"] == "ctxdistill_dB_tL"].groupby("class")["f1_test"].mean()
+    f_max = pc.groupby("class")["f1_test"].max()
+
+    rows = []
+    for idx, cls in enumerate(CLS_11):
+        rows.append(dict(
+            cls=cls,
+            frozen=float(f_h[cls]),
+            ctxf=float(f_cf[cls]),
+            max230=float(f_max[cls]),
+            n_train=int(tr.get(idx, 0)),
+            n_test=int(te.get(idx, 0)),
+        ))
+    df = pd.DataFrame(rows).sort_values(["frozen", "max230"], ascending=[True, True]).reset_index(drop=True)
+    y = np.arange(len(df))
+
+    fig, (a, b) = plt.subplots(1, 2, figsize=(11.6, 5.2), sharey=True,
+                               gridspec_kw={"width_ratios": [1.35, 1], "wspace": 0.08})
+
+    # Shade the 3 rare near-zero classes at the bottom (rows 0, 1, 2)
+    a.axhspan(-0.55, 2.5, color="#FDF3F2", lw=0, zorder=0)
+    b.axhspan(-0.55, 2.5, color="#FDF3F2", lw=0, zorder=0)
+    a.axhline(2.5, color="#E2B4B0", lw=1.0, ls="--", zorder=1)
+    b.axhline(2.5, color="#E2B4B0", lw=1.0, ls="--", zorder=1)
+
+    for i, r in df.iterrows():
+        lo, hi = min(r.frozen, r.ctxf), max(r.frozen, r.ctxf)
+        if hi > lo + 1e-4:
+            a.hlines(i, lo, hi, color=COL["nbr"] if r.ctxf >= r.frozen else COL["grey"],
+                     lw=2.0, alpha=0.55, zorder=2)
+        if r.max230 > hi + 0.008:
+            a.hlines(i, hi, r.max230, color=COL["light"], lw=1.2, ls=":", zorder=1)
+        if i <= 2:
+            a.text(r.max230 + 0.018, i, f"0.000  (max of 230: {r.max230:.3f})",
+                   va="center", ha="left", fontsize=8.2, color=COL["grey"])
+        else:
+            delta = r.ctxf - r.frozen
+            sign_col = COL["nbr"] if delta >= 0.02 else COL["ink"] if delta >= 0 else COL["grey"]
+            a.text(max(r.max230, hi) + 0.018, i, f"{delta:+.3f}",
+                   va="center", ha="left", fontsize=8.2, color=sign_col,
+                   fontweight="bold" if delta >= 0.05 else "normal")
+
+    a.scatter(df["max230"], y, s=34, marker="|", color=COL["ink"], linewidth=1.6,
+              label="best of 230 probes", zorder=3)
+    a.scatter(df["frozen"], y, s=56, marker="o", color=COL["frozen"], edgecolor="white",
+              linewidth=0.7, label="Frozen DINOv3-H+", zorder=4)
+    a.scatter(df["ctxf"], y, s=58, marker="D", color=COL["nbr"], edgecolor="white",
+              linewidth=0.7, label="Context fusion (fine-tuned) †", zorder=5)
+
+    a.text(1.09, 0.7, "3 rare classes (< 400 train tiles)\ndropped in 8-class view",
+           ha="right", va="center", fontsize=8.2, color=COL["nbr"], style="italic")
+    a.set_yticks(y)
+    a.set_yticklabels(df["cls"], fontsize=9.5, family="DejaVu Sans Mono")
+    a.set_xlim(-0.04, 1.12)
+    a.set_ylim(-0.6, len(df) - 0.35)
+    a.set_xticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
+    a.set_xlabel("per-class F1 on test split (right labels: Δ context fusion − frozen)")
+    a.grid(axis="y", visible=False)
+    a.set_title("Per-class F1: gains on ground cover, zero on rare classes")
+
+    h = 0.34
+    b.barh(y + h / 2, df["n_train"], height=h, color="#C8D4E3", label="train tiles (15 maps)", zorder=2)
+    b.barh(y - h / 2, df["n_test"], height=h, color=COL["frozen"], alpha=0.85, label="test tiles (9 maps)", zorder=2)
+    for i, r in df.iterrows():
+        b.text(max(r.n_train, r.n_test) * 1.18, i, f"{r.n_train:,} / {r.n_test:,}",
+               va="center", ha="left", fontsize=8, color=COL["ink"])
+    b.set_xscale("log")
+    b.set_xlim(15, 280000)
+    b.set_xticks([30, 100, 1000, 10000])
+    b.set_xticklabels(["30", "100", "1k", "10k"])
+    b.minorticks_off()
+    b.grid(axis="y", visible=False)
+    b.set_xlabel("tile count, log scale (train / test)")
+    b.set_title("Class imbalance across splits")
+
+    h1, l1 = a.get_legend_handles_labels()
+    h2, l2 = b.get_legend_handles_labels()
+    fig.legend(h1 + h2, l1 + l2, loc="lower center", ncol=5, fontsize=8.3, frameon=False,
+               bbox_to_anchor=(0.5, 0.055))
+    fig.subplots_adjust(bottom=0.22)
+    fig.text(0.5, 0.01, "Clean baseline per_class_f1.csv; RHOL is absent from val and test and dropped. "
+             "† non-deployable upper bound (mean of 3 seeds).", fontsize=8, color=COL["grey"],
+             va="bottom", ha="center")
+    save(fig, "10_per_class_f1.png")
+
+
 if __name__ == "__main__":
     fig_leaderboard()
     fig_adaptation()
@@ -746,3 +936,4 @@ if __name__ == "__main__":
     fig_datacurve()
     fig_classes8()
     fig_multibackbone()
+    fig_per_class()

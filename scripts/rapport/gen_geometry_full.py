@@ -7,7 +7,7 @@ et espace les en-têtes ; la heatmap geom_metrics_heatmap.png garde le détail c
     python3 scripts/rapport/gen_geometry_full.py
 """
 import csv, json, os, sys
-ROOT = '/home/erazal/Documents/Mémoire'
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, 'scripts', 'rapport'))
 from registry import CANONICAL_F1, OUT
 
@@ -28,21 +28,22 @@ COLS = [
 def num(v, nd):
     return ('{:.%df}' % nd).format(float(v)).replace('.', ',')
 
-rows = [r for r in csv.DictReader(open(os.path.join(OUT, 'geometry_models.csv')))
-        if r['model'] in CANONICAL_F1]
+with open(os.path.join(OUT, 'geometry_models.csv'), encoding='utf-8') as f:
+    rows = [r for r in csv.DictReader(f) if r['model'] in CANONICAL_F1]
 rows.sort(key=lambda r: -CANONICAL_F1[r['model']][0])
-disp = {m['model']: m['display']
-        for m in json.load(open(os.path.join(ROOT, 'results/all_models_canonical_merged.json')))['models']}
-head = '\\toprule
-Modèle & F1 & ' + ' & '.join(l for _, l, _ in COLS) + ' \\\\
-\\midrule
-'
+with open(os.path.join(ROOT, 'results/all_models_canonical_merged.json'), encoding='utf-8') as f:
+    disp = {m['model']: m['display'] for m in json.load(f)['models']}
+head = (
+    '\\toprule\n'
+    'Modèle & F1 & ' + ' & '.join(l for _, l, _ in COLS) + ' \\\\\n'
+    '\\midrule\n'
+)
 lines = ['\\setlength{\\tabcolsep}{4pt}\\scriptsize',
          '\\begin{longtable}{@{}lr' + 'r' * len(COLS) + '@{}}',
          '\\caption{Géométrie latente des %d modèles --- protocole unique : embeddings '
-         'test, sous-échantillon 20\,000, seed~42, métriques calculées par seed puis '
-         'moyennées. Trié par F1 décroissant. Les colonnes redondantes (RankMe σ, StbRk, '
-         'CHI) et la heatmap normalisée gardent le détail complet.}\\label{tab:geomfull}\\'
+         'test, sous-échantillon 20\\,000, seed~42, métriques calculées par seed puis '
+         'moyennées. Trié par F1 décroissant. Les colonnes redondantes (RankMe $\\sigma$, StbRk, '
+         'CHI) et la heatmap normalisée gardent le détail complet.}\\label{tab:geomfull}\\\\'
          % len(rows), head, '\\endfirsthead', '\\toprule',
          'Modèle & F1 & ' + ' & '.join(l for _, l, _ in COLS) + ' \\\\', '\\midrule', '\\endhead',
          '\\bottomrule', '\\endfoot']
@@ -59,6 +60,6 @@ lines += ['\\bottomrule', '\\end{longtable}',
           '\\vspace{2pt}\\par\\footnotesize\\textit{Source : }'
           '\\texttt{results/rapport\\_data/geometry\\_models.csv} '
           '\\texttt{(scripts/rapport/geometry\\_test\\_fixed\\_n.py)}.']
-open(os.path.join(ROOT, 'rapport_bouguessa/tables/t_geometry_full.tex'), 'w').write(
-    '\\n'.join(lines))
+with open(os.path.join(ROOT, 'rapport_bouguessa/tables/t_geometry_full.tex'), 'w', encoding='utf-8') as f:
+    f.write('\n'.join(lines))
 print('t_geometry_full.tex écrit (%d modèles, %d colonnes)' % (len(rows), len(COLS)))

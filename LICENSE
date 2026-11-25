@@ -1,14 +1,6 @@
-This repository is released under two licenses, depending on the material.
-
-================================================================================
-1. CODE — MIT License
-   Applies to: all source files (*.py), configuration files (*.yaml), the
-   Makefile, and the CI workflow.
-================================================================================
-
 MIT License
 
-Copyright (c) 2026 Lazare MAGUÉ
+Copyright (c) 2026 Lazare Magué
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -27,17 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-================================================================================
-2. FIGURES AND RESULTS — Creative Commons Attribution 4.0 (CC-BY-4.0)
-   Applies to: all images (*.png, *.pdf) and all result files (*.json, *.csv)
-   in this repository.
-
-   You are free to share and adapt this material for any purpose, including
-   commercially, provided you give appropriate credit.
-
-   Full text: https://creativecommons.org/licenses/by/4.0/legalcode
-================================================================================
-
-The Arctic-TVC dataset is distributed separately under its own license. See
-https://doi.org/10.20383/103.01418

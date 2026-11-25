@@ -96,6 +96,11 @@ __pycache__/
 !/results/rapport_data/dim_probe_dinov3_vitl16_sat.json
 !/results/rapport_data/dim_probe_simdinov2_vitb16.json
 !/results/rapport_data/dim_probe_vitb16_imagenet.json
+# SMARTIES (exploratoire, 2026-11-18) : petites tables lues par scripts/make_readme_plots.py (figure 06)
+!/results/rapport_data/geometry_smarties.csv
+!/results/rapport_data/smarties_probe_f1.csv
+!/results/rapport_data/dim_probe_smarties_vitl16_rgb_mean.json
+!/results/rapport_data/dim_probe_smarties_vitl16_s2_mean.json
 # Métriques latentes et corrélations
 !/results/all_scores_consolidated.json
 !/results/T2a_kmeans_control.json
@@ -285,6 +290,8 @@ __pycache__/
 # Notes de travail internes, rapports d'encadrement, journaux de bord :
 !/README.md
 !/LICENSE
+!/LICENSE-DATA
+!/CITATION.cff
 !/figures/
 # Données et artefacts intermédiaires :
 !/results/README.md
@@ -305,6 +312,9 @@ __pycache__/
 !/results/tile_context_2026-11-01/*.json
 !/scripts/make_readme_context_figures.py
 !/scripts/make_readme_plots.py
+# Trois modèles EO 2026 (une seed) — sonde citée par make_tables.py (annexe D) et par le README :
+!/scripts/probe_eofm_11cls.py
+!/results/probe_knn_eofm_11cls.json
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # RÈGLE GITHUB (2026-10-04) — CODE + README uniquement.
