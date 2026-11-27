@@ -192,21 +192,20 @@ def fig_leaderboard():
                             mean=sc.loc[k, "mean"], sd=sc.loc[k, "sd"], kind="ft", key=None)
     fg = pd.read_csv(FG_OUT / "multibackbone_smoothing_fullgraph.csv").set_index("backbone")
     tier_c = [
-        recipe("3x3 mean + mean field (SimDINOv2-B, oracle ‡)", abl["R3"]["mf"]["test"], "oracle"),
-        recipe("DINOv3-B frozen, 3x3 + Wconf (full graph, 8 nbrs)", float(fg.loc["dinov3_vitb16_lvd", "R3_Wconf"]), "recipe"),
-        recipe("DINOv3-H+ frozen, tile + Wconf (full graph, 8 nbrs)", float(fg.loc["dinov3_vith16plus_lvd", "R0_Wconf"]), "recipe"),
-        recipe("SimDINOv2-B frozen, tile + Wconf (full graph, 8 nbrs)", float(fg.loc["simdinov2_vitb16", "R0_Wconf"]), "recipe"),
+        recipe("DINOv3-B frozen, 3x3 + conf. smoothing (8 nbrs)", float(fg.loc["dinov3_vitb16_lvd", "R3_Wconf"]), "recipe"),
+        recipe("SimDINOv2-L frozen, 3x3 + conf. smoothing (8 nbrs)", float(fg.loc["simdinov2_vitl16", "R3_Wconf"]), "recipe"),
+        recipe("DINOv3-H+ frozen, tile + conf. smoothing (8 nbrs)", float(fg.loc["dinov3_vith16plus_lvd", "R0_Wconf"]), "recipe"),
+        recipe("SimDINOv2-B frozen, tile + conf. smoothing (8 nbrs)", float(fg.loc["simdinov2_vitb16", "R0_Wconf"]), "recipe"),
     ]
-    tier_b = sorted([recipe("3x3 mean of annotated tiles (oracle ‡)", f("R3"), "oracle"),
-                     recipe("Tile + 512 px context †", f("R2"), "recipe"),
+    tier_b = sorted([recipe("Tile + 512 px context †", f("R2"), "recipe"),
                      ctx_ft("ctxdistill_dB_tL"), ctx_ft("ctxdistill_dB_tSL_r8a16"),
                      ctx_ft("ctxdistill_dB_tSL_r2a4")], key=lambda r: -r["mean"])
     tier_a_rows = [dict(label=LABELS[k], mean=sc.loc[k, "mean"],
                         sd=sc.loc[k, "sd"] if sc.loc[k, "n"] > 1 else None,
                         kind=kind_of(k), key=k) for k in tier_a]
 
-    tiers = [("Spatial smoothing on frozen backbones (deployable 8 nbrs vs oracle ‡)", tier_c),
-             ("Neighbour / wider context as input", tier_b),
+    tiers = [("Map-level smoothing on frozen backbones (all 8 neighbouring tiles, no training)", tier_c),
+             ("Wider 512 px context as input", tier_b),
              ("Single tile only", tier_a_rows)]
     ys, y = [], 0.0
     layout = []
@@ -218,7 +217,7 @@ def fig_leaderboard():
             y -= 1.0
         y -= 0.5
 
-    fig, (a, b) = plt.subplots(1, 2, figsize=(13.2, 10.6), sharey=True,
+    fig, (a, b) = plt.subplots(1, 2, figsize=(13.2, 10.4), sharey=True,
                                gridspec_kw={"width_ratios": [1.45, 1], "wspace": 0.12})
     best_frozen = sc.loc[ref, "mean"]
     a.axvline(best_frozen, color=COL["grey"], ls="--", lw=1)
@@ -235,9 +234,7 @@ def fig_leaderboard():
                    bbox=dict(facecolor="white", edgecolor="none", pad=1.5))
             continue
         r = item
-        if r["kind"] == "oracle":
-            c, fc, mk = COL["nbr"], "white", "D"
-        elif r["kind"] == "recipe":
+        if r["kind"] == "recipe":
             c, fc, mk = COL["attn"], COL["attn"], "D"
         else:
             c = COL["frozen"] if r["kind"] == "frozen" else KIND_COL[r["kind"]]
@@ -250,11 +247,10 @@ def fig_leaderboard():
         if x < 0.40:
             a.text(0.4015, y, f"{x:.4f} (off scale)", fontsize=8, va="center", color=c)
         else:
-            a.scatter([x], [y], s=48, facecolor=fc, edgecolor=c if fc == "white" else "white",
-                      marker=mk, linewidth=1.3 if fc == "white" else 0.7, zorder=3)
+            a.scatter([x], [y], s=48, facecolor=fc, edgecolor="white",
+                      marker=mk, linewidth=0.7, zorder=3)
             a.text(1.015, y, f"{x:.4f}", transform=a.get_yaxis_transform(), fontsize=8.5,
-                   va="center", ha="left", color=COL["grey"] if r["kind"] == "oracle" else COL["ink"],
-                   family="DejaVu Sans Mono")
+                   va="center", ha="left", color=COL["ink"], family="DejaVu Sans Mono")
         if r["key"] is not None:
             if r["key"] == ref:
                 b.scatter([0], [y], s=40, color=COL["ink"], marker="|", zorder=3)
@@ -268,12 +264,11 @@ def fig_leaderboard():
     handles = [Line2D([], [], marker="o", ls="", color=COL["frozen"], label="frozen"),
                Line2D([], [], marker="o", ls="", color=COL["lora"], label="fine-tuned"),
                Line2D([], [], marker="o", ls="", color=COL["scratch"], label="from scratch"),
-               Line2D([], [], marker="D", ls="", color=COL["attn"], label="deployable context / smoothing"),
-               Line2D([], [], marker="D", ls="", mfc="white", mec=COL["nbr"], mew=1.3, label="annotated-only oracle ‡")]
-    a.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.065), ncol=3, fontsize=8.3, frameon=False)
+               Line2D([], [], marker="D", ls="", color=COL["attn"], label="frozen + spatial context / smoothing")]
+    a.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.065), ncol=4, fontsize=8.3, frameon=False)
     a.set_yticks(yticks)
     a.set_yticklabels(ylabels, fontsize=8.5)
-    a.set_xlim(0.40, 0.55)
+    a.set_xlim(0.40, 0.525)
     a.set_ylim(min(y for _, _, y in layout) - 0.8, 0.9)
     a.grid(axis="y", visible=False)
     b.grid(axis="y", visible=False)
@@ -285,9 +280,9 @@ def fig_leaderboard():
     b.set_title("Which models separate from the best frozen one?", fontsize=11.5)
     n_rej = int(vs["reject"].sum())
     fig.text(0.125, -0.005,
-             f"Left: clean baseline, mean of 3 seeds with ±SD bars (frozen models: one run). Green diamonds: deployable full-graph or R2 recipes.\n"
-             f"Right: paired bootstrap over maps then tiles, filled = survives Benjamini-Hochberg at 5% ({n_rej} of {len(vs)} single-tile models).\n"
-             f"† requires a 512 px context patch at inference. ‡ non-deployable oracle: restricts the graph to annotated transect neighbours only.",
+             f"Left: clean baseline, mean of 3 seeds with ±SD bars (frozen models: one run). Green diamonds: frozen backbones with spatial context or smoothing.\n"
+             f"Right: paired bootstrap over maps then tiles, filled = survives Benjamini-Hochberg at 5% ({n_rej} of {len(vs)} single-tile models). "
+             f"† requires a 512 px context patch at inference.",
              fontsize=8, color=COL["grey"], va="top")
     save(fig, "01_leaderboard.png")
 
@@ -301,19 +296,18 @@ def fig_adaptation():
 
     # Same backbone, neighbourhood and smoothing arms (their own runs, same split).
     arms = jload(TC / "canonical_probe_arms.json")["records"]
-    abl = jload(TC / "recipe_ablation.json")
     gnn = jload(TC / "gnn_canonical.json")["records"]
     wf = jload(DF_OUT / "weighted_fullgraph.json")["selected"]
+    wf_r2 = jload(DF_OUT / "weighted_fullgraph_r2.json")["selected"]
     extra = [
-        ("GATv2, 3 layers (full graph)", gnn["GNN3"]["f1"], COL["scratch"], True),
-        ("Tile + W_conf (full graph, deployable)", wf["W_conf"]["test"], COL["attn"], True),
-        ("Tile + 512 px context R2 (deployable)", arms["R2"]["metrics"]["f1_macro_pres"], COL["attn"], True),
-        ("3x3 mean (annotated-only oracle ‡)", arms["R3"]["metrics"]["f1_macro_pres"], COL["nbr"], False),
-        ("Single tile + mean field (oracle ‡)", abl["R0"]["mf"]["test"], COL["nbr"], False),
-        ("3x3 mean + mean field (oracle ‡)", abl["R3"]["mf"]["test"], COL["nbr"], False),
+        ("Uniform mean over 8 neighbours", gnn["MEAN9"]["f1"], COL["attn"]),
+        ("GATv2, 3 layers (full graph)", gnn["GNN3"]["f1"], COL["scratch"]),
+        ("Single tile + conf. smoothing (8 nbrs)", wf["W_conf"]["test"], COL["attn"]),
+        ("Tile + 512 px context", arms["R2"]["metrics"]["f1_macro_pres"], COL["attn"]),
+        ("Tile + 512 px + smoothing (8 nbrs)", wf_r2["R2h_entropie"]["test"], COL["attn"]),
     ]
 
-    fig, ax = plt.subplots(figsize=(9.2, 7.6))
+    fig, ax = plt.subplots(figsize=(9.0, 7.2))
     ax.axvline(frozen, color=COL["frozen"], ls="--", lw=1.2, zorder=1)
     best_adapt = sc.loc[rows[-1], "mean"]
     ax.axvline(best_adapt, color=COL["lora"], ls=":", lw=1.1, zorder=1)
@@ -326,16 +320,14 @@ def fig_adaptation():
         ax.scatter([sc.loc[k, "mean"]], [i], s=60, color=c, edgecolor="white", linewidth=0.7, zorder=3)
         labels.append(LABELS[k].replace("SimDINOv2-B, ", ""))
     y0 = len(rows) + 1.4
-    ax.text(0.4555, y0, "Neighbourhood and smoothing, same backbone (deployable vs oracle ‡)", fontsize=9,
+    ax.text(0.4555, y0, "Spatial context and smoothing, same frozen backbone", fontsize=9,
             fontweight="bold", color=COL["ink"], va="center",
             bbox=dict(facecolor="white", edgecolor="none", pad=1.5), zorder=4)
     extra_y = []
-    for j, (lab, val, c, filled) in enumerate(extra):
+    for j, (lab, val, c) in enumerate(extra):
         y = y0 + 0.9 + j
         extra_y.append(y)
-        ax.scatter([val], [y], s=62, facecolor=c if filled else "white",
-                   edgecolor="white" if filled else c, marker="D",
-                   linewidth=0.7 if filled else 1.4, zorder=3)
+        ax.scatter([val], [y], s=62, facecolor=c, edgecolor="white", marker="D", linewidth=0.7, zorder=3)
         labels.append(lab)
     top_y = extra_y[-1]
     ax.text(frozen - 0.001, top_y, f"frozen {frozen:.4f}", color=COL["frozen"], fontsize=8.5,
@@ -345,30 +337,28 @@ def fig_adaptation():
     ax.set_yticks(list(range(len(rows))) + extra_y)
     ax.set_yticklabels(labels, fontsize=9)
     ax.set_ylim(-1.05, top_y + 0.85)
-    ax.set_xlim(0.454, 0.546)
+    ax.set_xlim(0.455, 0.515)
     ax.set_xlabel("macro F1, 11 classes, test split (dots: seeds, large dot: mean)")
     ax.grid(axis="y", visible=False)
-    dep_gain = arms["R2"]["metrics"]["f1_macro_pres"] - frozen
-    ora_gain = abl["R3"]["mf"]["test"] - frozen
-    ax.set_title(f"Adaptation: {best_adapt - frozen:+.3f}; deployable context: {dep_gain:+.3f} (oracle ‡: {ora_gain:+.3f})")
+    dep_gain = wf_r2["R2h_entropie"]["test"] - frozen
+    ax.set_title(f"Adaptation: best {best_adapt - frozen:+.3f}; spatial context and smoothing: {dep_gain:+.3f}")
     from matplotlib.lines import Line2D
     handles = [
         Line2D([], [], marker="o", ls="", color=COL["lora"], label="LoRA"),
         Line2D([], [], marker="o", ls="", color=COL["attn"], label="attention / norm"),
         Line2D([], [], marker="o", ls="", color=COL["full"], label="full fine-tuning"),
-        Line2D([], [], marker="D", ls="", color=COL["attn"], label="deployable context"),
-        Line2D([], [], marker="D", ls="", mfc="white", mec=COL["nbr"], mew=1.4, label="oracle ‡"),
+        Line2D([], [], marker="D", ls="", color=COL["attn"], label="spatial context / smoothing"),
+        Line2D([], [], marker="D", ls="", color=COL["scratch"], label="GATv2"),
     ]
     ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.105), ncol=5, fontsize=8.2, frameon=False)
     fig.subplots_adjust(left=0.33, bottom=0.17)
-    fig.text(0.33, 0.01, "Diamonds: neighbourhood and smoothing arms on frozen SimDINOv2-B. "
-             "‡ non-deployable oracle (annotated transect neighbours only).", fontsize=8, color=COL["grey"], va="bottom")
+    fig.text(0.33, 0.01, "Diamonds: spatial context and smoothing on frozen SimDINOv2-B (all 8 neighbouring tiles).",
+             fontsize=8, color=COL["grey"], va="bottom")
     save(fig, "02_adaptation_regimes.png")
 
 # --------------------------------------------------------------------------- 3. context ladder
 def fig_context():
     arms = jload(TC / "canonical_probe_arms.json")["records"]
-    abl = jload(TC / "recipe_ablation.json")
     wf = jload(DF_OUT / "weighted_fullgraph.json")
     wf_r2 = jload(DF_OUT / "weighted_fullgraph_r2.json")
     sel = wf["selected"]
@@ -377,30 +367,26 @@ def fig_context():
 
     base = wf["base_test"]
     rows = [
-        ("Single tile (R0)", base, "base", "baseline"),
-        ("Tile + MF uniform (8 true nbrs)", sel["UNI_FULL"]["test"], "dep",
-         f"{sel['UNI_FULL']['test'] - base:+.4f} vs R0"),
-        ("Tile + W_domain (good vs bad clf)", sel["W_domain"]["test"], "dep",
+        ("Single tile", base, "base", "baseline"),
+        ("Uniform smoothing (8 nbrs)", sel["UNI_FULL"]["test"], "dep",
+         f"{sel['UNI_FULL']['test'] - base:+.4f} vs single tile"),
+        ("Domain-weighted smoothing", sel["W_domain"]["test"], "dep",
          f"{sel['W_domain']['test'] - base:+.4f}  (val AUC {diag['domain_auc_val']:.3f})"),
-        ("Tile + W_appris (learned edge clf)", sel["W_appris"]["test"], "dep",
+        ("Learned edge-utility smoothing", sel["W_appris"]["test"], "dep",
          f"{sel['W_appris']['test'] - base:+.4f}  (val AUC {diag['utilite_auc_val']:.3f})"),
-        ("Tile + W_conf (confidence only)", sel["W_conf"]["test"], "dep",
+        ("Confidence-weighted smoothing", sel["W_conf"]["test"], "dep",
          f"{sel['W_conf']['test'] - base:+.4f}  (no training)"),
-        ("Zoom-out fusion R2 ([224; 512@224])", arms["R2"]["metrics"]["f1_macro_pres"], "dep",
-         f"{arms['R2']['metrics']['f1_macro_pres'] - base:+.4f} vs R0"),
-        ("R2 + W_entropie (8 true nbrs)", sel_r2["R2h_entropie"]["test"], "dep",
-         f"{sel_r2['R2h_entropie']['test'] - base:+.4f} vs R0"),
-        ("3x3 mean (annotated only, oracle)", arms["R3"]["metrics"]["f1_macro_pres"], "ora",
-         f"{arms['R3']['metrics']['f1_macro_pres'] - base:+.4f}  (6.53 nbrs)"),
-        ("Tile + MF (annotated only, oracle)", sel["ORACLE"]["test"], "ora",
-         f"{sel['ORACLE']['test'] - base:+.4f}  (+0.027 vs W_appris)"),
-        ("3x3 + MF (annotated only, oracle)", abl["R3"]["mf"]["test"], "ora",
-         f"{abl['R3']['mf']['test'] - base:+.4f}  (non-deployable)"),
+        ("Tile + 512 px context", arms["R2"]["metrics"]["f1_macro_pres"], "dep",
+         f"{arms['R2']['metrics']['f1_macro_pres'] - base:+.4f} vs single tile"),
+        ("Tile + 512 px + smoothing (8 nbrs)", sel_r2["R2h_entropie"]["test"], "dep",
+         f"{sel_r2['R2h_entropie']['test'] - base:+.4f} vs single tile"),
+        ("Smoothing on annotated nbrs only", sel["ORACLE"]["test"], "ora",
+         f"{sel['ORACLE']['test'] - base:+.4f}  (6.53 nbrs, upper bound)"),
     ]
     n = len(rows)
     ys = [n - 1 - i + (0.45 if i < 7 else 0.0) for i in range(n)]
-    fig, ax = plt.subplots(figsize=(9.8, 5.6))
-    ax.set_xlim(0.455, 0.555)
+    fig, ax = plt.subplots(figsize=(9.8, 5.0))
+    ax.set_xlim(0.455, 0.542)
     for (lab, v, kind, note), y in zip(rows, ys):
         if kind == "base":
             c, fc = COL["frozen"], COL["frozen"]
@@ -411,19 +397,19 @@ def fig_context():
         ax.hlines(y, 0.455, v, color=c, lw=1.2, alpha=0.35, zorder=1)
         ax.scatter([v], [y], s=68, facecolor=fc, edgecolor=c if fc == "white" else "white",
                    linewidth=1.4 if fc == "white" else 0.8, zorder=3)
-        ax.text(v + 0.0015, y, f"{v:.4f}", fontsize=8.5, color=c, ha="left", va="center")
+        ax.text(v + 0.0014, y, f"{v:.4f}", fontsize=8.5, color=c, ha="left", va="center")
         ax.text(1.02, y, note, transform=ax.get_yaxis_transform(), fontsize=8.5, va="center",
                 color=COL["ink"] if kind == "dep" else COL["grey"])
     sep_y = (ys[6] + ys[7]) / 2.0
-    ax.axhline(sep_y, color=COL["light"], lw=1.3, ls="--")
+    ax.axhline(sep_y, color=COL["light"], lw=1.2, ls="--")
     ax.set_yticks(ys)
     ax.set_yticklabels([r[0] for r in rows], fontsize=9)
     ax.set_ylim(-0.6, max(ys) + 0.65)
     ax.set_xlabel("macro F1, 11 classes, test split")
     ax.grid(axis="y", visible=False)
-    ax.text(0.553, sep_y + 0.12, "deployable (all 8 true nbrs / R2)", fontsize=8.3, color=COL["attn"], va="bottom", ha="right")
-    ax.text(0.553, sep_y - 0.12, "annotated-only oracle (non-deployable)", fontsize=8.3, color=COL["nbr"], va="top", ha="right")
-    ax.set_title("Deployable full graph vs annotated-only oracle (frozen SimDINOv2-B/16)")
+    ax.text(0.540, sep_y + 0.12, "deployable (all 8 neighbouring tiles / 512 px crop)", fontsize=8.2, color=COL["attn"], va="bottom", ha="right")
+    ax.text(0.540, sep_y - 0.12, "annotated transect neighbours only", fontsize=8.2, color=COL["nbr"], va="top", ha="right")
+    ax.set_title("Spatial context and neighbour weighting (frozen SimDINOv2-B/16)")
     save(fig, "03_context_ladder.png")
 
 
@@ -469,8 +455,8 @@ def fig_smoothing():
     b.set_xlim(0.45, 0.615)
     b.set_ylim(-0.6, len(grid) - 0.1)
     b.grid(axis="y", visible=False)
-    b.set_xlabel("macro F1, single tile + mean field (oracle subgraph)")
-    b.set_title("Smoothing radius: nearest tiles only (oracle subgraph)")
+    b.set_xlabel("macro F1, single tile + mean field (annotated subgraph)")
+    b.set_title("Smoothing radius: nearest tiles only")
     save(fig, "04_smoothing.png")
 
 
@@ -482,13 +468,13 @@ def fig_gnn():
     params = lambda p: f"{p / 1000:.0f}k params" if p else "no parameters"
 
     groups = [
-        ("Annotated-only subgraph (oracle, 6.53 nbrs/tile)", g["R3"]["f1"], [
-            ("3x3 mean (oracle)", g["R3"]["f1"], None, 0, True),
+        ("Annotated tiles only (6.53 nbrs/tile)", g["R3"]["f1"], [
+            ("3x3 mean", g["R3"]["f1"], None, 0, True),
             ("Attention over the 3x3 window", g["L1"]["f1"], seeds("L1"), g["L1"]["n_params"], False),
             ("Attention, neighbour positions shuffled", g["L1p"]["f1"], seeds("L1p"), g["L1p"]["n_params"], False),
             ("CNN on the 3x3 window", g["L2"]["f1"], seeds("L2"), g["L2"]["n_params"], False),
         ]),
-        ("Deployable full graph (all 8 true nbrs, 120,118 nodes)", g["MEAN9"]["f1"], [
+        ("All 8 neighbouring tiles (120,118 nodes)", g["MEAN9"]["f1"], [
             ("Uniform mean over the graph", g["MEAN9"]["f1"], None, 0, True),
             ("GATv2, 2 layers", g["GNN2"]["f1"], g["GNN2"]["f1_std"], g["GNN2"]["n_params"], False),
             ("GATv2, 3 layers", g["GNN3"]["f1"], g["GNN3"]["f1_std"], g["GNN3"]["n_params"], False),
@@ -754,10 +740,10 @@ def fig_classes8():
     arms = arms_scores()
     if len(arms):
         a.scatter(arms.f11, arms.f8, s=58, marker="D", color=COL["nbr"], edgecolor="white",
-                  linewidth=0.7, zorder=3, label="context arms (incl. oracle)")
+                  linewidth=0.7, zorder=3, label="context and decoding arms")
         top_arm = arms.loc[arms["f8"].idxmax()]
-        a.annotate(top_arm["label"] + " (oracle)", (top_arm["f11"], top_arm["f8"]), xytext=(-16, 4),
-                   textcoords="offset points", fontsize=8, color=COL["nbr"], ha="right", va="center",
+        a.annotate(top_arm["label"] + " (annotated only)", (top_arm["f11"], top_arm["f8"]), xytext=(-14, 4),
+                   textcoords="offset points", fontsize=7.8, color=COL["nbr"], ha="right", va="center",
                    arrowprops=dict(arrowstyle="-", lw=0.8, color=COL["nbr"]))
     fg_f = FG_OUT / "multibackbone_smoothing_fullgraph.csv"
     if fg_f.exists():
@@ -765,8 +751,8 @@ def fig_classes8():
         f11_dep = float(fg.loc["dinov3_vitb16_lvd", "R3_Wconf"])
         f8_dep = float(fg.loc["dinov3_vitb16_lvd", "R3_Wconf_8cls"])
         a.scatter([f11_dep], [f8_dep], s=66, marker="D", color=COL["attn"], edgecolor="white",
-                  linewidth=0.8, zorder=4, label="deployable full graph (DINOv3-B)")
-        a.annotate("DINOv3-B R3+Wconf\n(deployable)", (f11_dep, f8_dep), xytext=(-14, 14),
+                  linewidth=0.8, zorder=4, label="best deployable (DINOv3-B, 8 nbrs)")
+        a.annotate("DINOv3-B, 3x3 + conf.\nsmoothing (8 nbrs)", (f11_dep, f8_dep), xytext=(-14, 14),
                    textcoords="offset points", fontsize=7.8, color=COL["attn"], ha="right", va="bottom",
                    arrowprops=dict(arrowstyle="-", lw=0.9, color=COL["attn"]))
 
@@ -816,66 +802,59 @@ MB_LABELS = {
 
 def fig_multibackbone():
     f_full = FG_OUT / "multibackbone_smoothing_fullgraph.csv"
-    f_ora = TC / "multibackbone_smoothing.csv"
     if not f_full.exists():
         return
     d = pd.read_csv(f_full)
-    if f_ora.exists():
-        ora = pd.read_csv(f_ora)[["backbone", "R3_MF"]].rename(columns={"R3_MF": "R3_MF_oracle"})
-        d = d.merge(ora, on="backbone", how="left")
     d["label"] = d["backbone"].map(MB_LABELS).fillna(d["backbone"])
     d = d.sort_values("R3_Wconf")
     ps = pd.read_csv(BASE / "per_seed.csv").groupby("key")["f1_macro_pres"].mean()
     ref = max(ps[k] for k in LABELS if k not in UPPER_BOUND)
     y = np.arange(len(d))
 
-    fig, (a, b) = plt.subplots(1, 2, figsize=(13.2, 5.6), sharey=True,
-                               gridspec_kw={"width_ratios": [1.35, 1], "wspace": 0.08})
+    fig, (a, b) = plt.subplots(1, 2, figsize=(13.0, 5.5), sharey=True,
+                               gridspec_kw={"width_ratios": [1.3, 1], "wspace": 0.08})
     a.axvline(ref, color=COL["grey"], ls="--", lw=1)
-    series = [("R0", "single tile (R0)", "o", COL["frozen"], 34, True),
-              ("R0_MF", "R0 + MF uniform (8 nbrs)", "o", "#7FA7D6", 34, True),
-              ("R0_Wconf", "R0 + Wconf (8 nbrs)", "s", COL["lora"], 38, True),
-              ("R3_Wconf", "R3 + Wconf (8 nbrs, deployable)", "D", COL["attn"], 46, True)]
-    for col, lab, mk, c, sz, filled in series:
+    series = [("R0", "single tile", "o", COL["frozen"], 36),
+              ("R0_MF", "single tile + uniform smoothing", "o", "#7FA7D6", 36),
+              ("R0_Wconf", "single tile + conf. smoothing", "s", COL["lora"], 40),
+              ("R3_Wconf", "3x3 average + conf. smoothing", "D", COL["attn"], 48)]
+    for col, lab, mk, c, sz in series:
         a.scatter(d[col], y, marker=mk, s=sz, color=c, edgecolor="white", linewidth=0.6,
                   label=lab, zorder=3)
-    if "R3_MF_oracle" in d:
-        a.scatter(d["R3_MF_oracle"], y, marker="D", s=44, facecolor="white", edgecolor=COL["nbr"],
-                  linewidth=1.3, label="3x3 + MF (annotated-only oracle ‡)", zorder=3)
     a.set_yticks(y)
     a.set_yticklabels(d["label"], fontsize=9)
     a.set_ylim(-0.6, len(d) - 0.25)
-    cols_x = ["R0", "R0_MF", "R0_Wconf", "R3_Wconf"] + (["R3_MF_oracle"] if "R3_MF_oracle" in d else [])
-    xlo = min(d[cols_x].min()) - 0.008
-    xhi = max(d[cols_x].max()) + 0.010
+    cols_x = ["R0", "R0_MF", "R0_Wconf", "R3_Wconf"]
+    xlo = min(d[cols_x].min()) - 0.005
+    xhi = max(d[cols_x].max()) + 0.006
     a.set_xlim(xlo, xhi)
     a.set_xlabel("macro F1, 11 classes, test split")
     a.grid(axis="y", visible=False)
     h, l = a.get_legend_handles_labels()
     h.append(plt.Line2D([], [], color=COL["grey"], ls="--", lw=1))
     l.append(f"best single-tile model ({ref:.4f})")
-    a.set_title("Deployable full graph (8 true nbrs) vs oracle ‡")
+    a.set_title("Context and smoothing on 8 backbones (all 8 neighbours)")
 
     b.axvline(0, color=COL["grey"], ls="--", lw=1)
     b.errorbar(d["d_mf_R0"], y - 0.14, xerr=[d["d_mf_R0"] - d["lo_mf_R0"], d["hi_mf_R0"] - d["d_mf_R0"]],
                fmt="o", ms=5, color="#4C72B0", ecolor="#7FA7D6", elinewidth=1.3, capsize=2,
-               label="R0 + MF uniform vs R0", zorder=3)
+               label="uniform smoothing vs single tile", zorder=3)
     b.errorbar(d["d_wconf_R0"], y + 0.14, xerr=[d["d_wconf_R0"] - d["lo_wconf_R0"], d["hi_wconf_R0"] - d["d_wconf_R0"]],
                fmt="D", ms=5, color=COL["attn"], ecolor=COL["attn"], elinewidth=1.3, capsize=2,
-               label="R0 + Wconf vs R0", zorder=3)
+               label="conf. smoothing vs single tile", zorder=3)
     blo = min(d[["lo_mf_R0", "lo_wconf_R0"]].min()) - 0.004
     bhi = max(d[["hi_mf_R0", "hi_wconf_R0"]].max()) + 0.004
     b.set_xlim(blo, bhi)
     b.set_ylim(-0.6, len(d) - 0.25)
     b.grid(axis="y", visible=False)
-    b.set_xlabel("paired delta vs single tile (R0), full graph")
-    b.set_title("Deployable smoothing gain, 95% CI over 9 maps")
+    b.set_xlabel("paired delta vs single tile")
+    b.set_title("Smoothing gain, 95% CI over 9 maps")
     h2, l2 = b.get_legend_handles_labels()
     fig.legend(h + h2, l + l2, loc="lower center", ncol=4, fontsize=8.3, frameon=False,
                bbox_to_anchor=(0.5, 0.07))
     fig.subplots_adjust(bottom=0.31)
-    fig.text(0.5, 0.015, "Deployable full graph: all 8.00 true neighbours (120,164 nodes); all 8/8 CIs exclude 0. "
-             "‡ Annotated-only oracle (6.53 nbrs/tile, non-deployable). Fine-tuned rows use seed 0.",
+    fig.text(0.5, 0.015, "All 8 neighbouring tiles per tile (120,164 nodes); all 8/8 CIs exclude 0. "
+             "Fine-tuned rows use seed 0.",
              fontsize=8, color=COL["grey"], va="bottom", ha="center")
     save(fig, "09_multibackbone.png")
 
