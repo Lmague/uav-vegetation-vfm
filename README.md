@@ -5,16 +5,17 @@
 
 Code and results for my M.Sc. thesis in computer science (AI) at UQAM, supervised by Mohamed Bouguessa (ML) and Étienne Laliberté (ecology).
 
-The goal is to classify 224 px tiles cropped from Arctic tundra drone orthomosaics (about 2.2 mm/px) into 11 vegetation classes. I compare frozen foundation models, parameter-efficient fine-tuning (PEFT), full fine-tuning, and a from-scratch baseline under one shared linear probe and one orthomosaic-level test split. The main question is simple: on this kind of fine-scale vegetation map, what actually helps the most — a bigger/better backbone, fine-tuning, or using the neighbouring tiles around each tile?
+The goal is to classify 224 px tiles cropped from Arctic tundra drone orthomosaics (about 2.2 mm/px) into 11 vegetation classes. I compare frozen foundation models, parameter-efficient fine-tuning (PEFT), full fine-tuning, and a from-scratch baseline under one shared linear probe and one orthomosaic-level test split. The main question is simple: on this kind of fine-scale vegetation map, does it help more to use a larger backbone, to fine-tune, or to include the neighbouring tiles around each tile?
 
-Main takeaways:
+Main results:
 
 - Across the DINOv3 and SimDINOv2 models, changing model size or fine-tuning moves macro F1 by at most 0.015. With 9 test orthomosaics, none of these models is significantly different from the best frozen backbone. Only the weakest baselines stand out: SatMAE, frozen ResNet-50 ImageNet, and ViT-B/16 trained from scratch.
-- Using neighbouring tiles and spatial smoothing increases macro F1 by roughly +0.04 to +0.06. The smoothing step requires no training; only the linear probe is refit on the averaged features.
-- Learned neighbour aggregation (self-attention, CNN, GATv2) does not beat a simple uniform average.
+- Using all 8 true neighbouring tiles and spatial smoothing (full 120,164-node graph, including unannotated tiles outside the transects, so deployable on new orthomosaics) raises macro F1 by +0.025 to +0.038 across all 8 backbones (all 95% CIs exclude zero). The best deployable score is 0.5089 (11 classes) / 0.6998 (8 classes), roughly matching two-view zoom-out fusion `R2` (0.5059). No backbone training is required; only the linear probe is refit.
+- Restricting the neighbourhood to annotated tiles only ("good neighbours" along the transects, 6.53 neighbours/tile on test) raises F1 to 0.5306–0.5394 (+0.025 to +0.035 higher), which is an oracle bound because that mask does not exist on a new map. Trying to separate "good" (annotated) from "bad" (off-transect) neighbours does not recover that gap: a binary domain classifier (`W_domain`) only reaches val AUC 0.642 (test F1 0.4967), and a supervised edge-utility classifier using class, confidence, entropy, direction, and embedding cosine similarity (`W_appris`, AUC 0.792) gets 0.4975. That matches simple confidence weighting (`W_conf`, 0.4978) and stays about 0.027 below the oracle (0.5246–0.5362).
+- Learned neighbour aggregation (self-attention, CNN, GATv2) does not beat fixed averaging or smoothing. Using larger native-resolution crops (384–1024 px without resizing) helps isolated tiles (+0.016 to +0.024) but does not beat `R2` and hurts 3x3 averaging, smoothing, and GATv2 because adjacent crops overlap too much.
 - Embedding geometry metrics can rank models slightly better than chance, but they do not predict F1 accurately.
 
-My highest score overall is **0.5394 macro F1**, obtained with a frozen DINOv3-L backbone, a 3x3 average of tile embeddings, and mean-field smoothing on the predicted map (in the 8-backbone experiment with extended smoothing grids). For the SimDINOv2-B pipeline analyzed in detail below, the same recipe reaches 0.5359 in its dedicated run (0.5362 in the 8-backbone run), compared to 0.4720 on a single tile in that run.
+My highest deployable score overall is 0.5089 macro F1 (0.6998 on 8 classes), obtained with a frozen DINOv3-B backbone, a 3x3 average over all 8 true neighbours, and confidence-weighted mean-field smoothing (`R3 + Wconf`). Frozen SimDINOv2-L reaches 0.5076, DINOv3-L 0.5065, DINOv3-H+ `R0 + Wconf` 0.5053, and SimDINOv2-B two-view `R2` 0.5059. The higher scores from the annotated-only subgraph (0.5394 for frozen DINOv3-L, 0.5359–0.5362 for SimDINOv2-B) are kept below as non-deployable oracle bounds ("good neighbours" only).
 
 Note that these multi-tile recipes use neighbouring tiles at inference time, so they are evaluated separately from the 42 single-input configurations. Among deployable single-tile models, the best one is context distillation at 0.4872. The three context-fusion rows (0.5052 to 0.5079) require both the tile and a 512 px context patch at inference time, so I treat them as non-deployable upper bounds (same for the frozen tile + 512 px recipe in the figure).
 
@@ -30,7 +31,7 @@ This ranking covers 42 configurations: 11 frozen models and 31 fine-tuned models
 - After Benjamini-Hochberg correction, only 3 of the 38 single-tile models are significantly different from the best frozen model: SatMAE (-0.071), frozen ResNet-50 ImageNet (-0.073), and ViT-B/16 from scratch (-0.126). All other pairs fail the correction (q > 0.10), even though three of them still have paired 95% CIs excluding zero (ViT-B/16 ImageNet, Scale-MAE, and fine-tuned ResNet-50).
 - Satellite-pretrained DINOv3 ViT-L gets 0.4620 vs 0.4791 for the natural-image version of the same architecture (-0.017, CI [-0.058, +0.001], not significant). Scale-MAE (0.4478) and SatMAE (0.4097) are both ViT-L models and still score below frozen ViT-B/16 ImageNet (0.4497), though the architecture size differs so this alone does not isolate the effect of satellite pretraining.
 - Adding fine-tuning on top of the 512 px context fusion does not seem to help: the two LoRA variants get 0.5056 and 0.5052 (clean baseline) compared to 0.5058 for the frozen fusion (tile-context run). Since those numbers come from separate runs, this is indicative rather than a paired test.
-- The context-fusion and 3x3-mean setups (0.5052 to 0.5205) are above every single-tile model (three of them are non-deployable upper bounds). By contrast, learned aggregation does not reach that level: the 3x3 CNN gets 0.4824 and GATv2 with shuffled edges gets 0.4648, both below the best single-tile model. These setups are outside the Benjamini-Hochberg test family above.
+- The context-fusion and 3x3-mean setups (0.5052 to 0.5205) are above every single-tile model (the 512 px fusion rows require a second view at inference, and the 0.5205 3x3 mean is on the annotated-only oracle subgraph). Learned aggregation stays lower: the 3x3 CNN gets 0.4824 and GATv2 with shuffled edges gets 0.4648, both below the best single-tile model. These setups are outside the Benjamini-Hochberg test family above.
 - Non-linear classification heads (MLP, bilinear, FiLM) never beat the linear probe on single-tile features (0 out of 33 groups, mean delta -0.0103). They do slightly better on 2 out of 24 fused groups, both single-seed and without confidence intervals, so I do not count them as reliable gains.
 
 <details>
@@ -87,20 +88,20 @@ This ranking covers 42 configurations: 11 frozen models and 31 fine-tuned models
 
 ![Adaptation regimes](figures/readme/02_adaptation_regimes.png)
 
-All 16 adaptation methods tested on SimDINOv2-B/16 end up between 0.4692 and 0.4812, compared to 0.4719 for the frozen backbone. I use SimDINOv2-B as the main testbed here because it is the only backbone where I ran the full 16-regime ablation in the clean baseline. Its frozen F1 is almost identical to DINOv3-B (0.4715, a 0.0004 gap), and the 8-backbone check below shows the same context and smoothing gains on DINOv3-B (+0.055 up to 0.5366, vs +0.057 up to 0.5362 for SimDINOv2-B). None of the 16 adapted versions is significantly better than the frozen model (the best one is LoRA r=8 on Q+K+V at +0.0094, CI [-0.006, +0.020], q = 0.24).
+All 16 adaptation methods tested on SimDINOv2-B/16 end up between 0.4692 and 0.4812, compared to 0.4719 for the frozen backbone. I use SimDINOv2-B as the main testbed here because it is the only backbone where I ran the full 16-regime ablation in the clean baseline. Its frozen F1 is almost identical to DINOv3-B (0.4715, a 0.0004 gap), and the 8-backbone check below shows the same context and smoothing gains on both backbones (on the deployable full graph, DINOv3-B reaches 0.5089; on the annotated-only oracle subgraph, +0.055 up to 0.5366 vs +0.057 up to 0.5362 for SimDINOv2-B). None of the 16 adapted versions is significantly better than the frozen model (the best one is LoRA r=8 on Q+K+V at +0.0094, CI [-0.006, +0.020], q = 0.24).
 
 - Going from LoRA rank 2 to rank 32 drops the mean score from 0.4793 to 0.4751, but no pair is statistically different (rank 2 vs rank 32: +0.0042, CI [-0.003, +0.009], q = 0.31), so I cannot confirm a real downward trend.
 - Updating only the normalization layers and the linear head gives 0.4783, practically indistinguishable from LoRA r=8 (CI [-0.009, +0.009]); compared to full fine-tuning, the CI is still wide enough to allow up to a +0.021 difference.
 - Full fine-tuning is the most sensitive to the random seed: 0.4696 to 0.4827 across 3 seeds.
 - Tuning only attention layers (MHSA) drops to 0.4692, which is 0.0027 below frozen, though again not statistically significant (CI [-0.020, +0.008], q = 0.78).
 
-For perspective, the top part of the figure plots the neighbourhood and smoothing setups on the exact same frozen backbone. Compared to 0.4719 frozen and 0.4812 for the best adaptation, the 512 px context gets 0.5058, the 3x3 average reaches 0.5205, and adding mean-field smoothing reaches 0.5359. GATv2 on the full graph gets 0.4933, still below the simple 3x3 average. Overall, context and smoothing bring roughly seven times more gain than adaptation (+0.064 vs +0.009).
+For perspective, the top part of the figure plots the neighbourhood and smoothing setups on the exact same frozen backbone. Compared to 0.4719 frozen and 0.4812 for the best adaptation, the 512 px context gets 0.5058 (deployable with a zoom-out patch), while on the annotated-only oracle subgraph the 3x3 average reaches 0.5205 and adding mean-field smoothing reaches 0.5359. On the deployable full graph (next section), GATv2 reaches 0.4933 and confidence-weighted smoothing reaches 0.4978 on SimDINOv2-B (up to 0.5089 on DINOv3-B). Even on the deployable graph, spatial context brings roughly three to four times more gain than adaptation (+0.026 to +0.038 vs +0.009).
 
 ## Neighbouring tiles and smoothing
 
 ![Context ladder](figures/readme/03_context_ladder.png)
 
-All rows here use the same frozen SimDINOv2-B/16 embeddings and the canonical linear probe. Paired differences are computed with a hierarchical bootstrap (resampling orthomosaics first, then tiles) over 10,000 replicates.
+All rows in this ladder use the same frozen SimDINOv2-B/16 embeddings and the canonical linear probe on the annotated-only subgraph (the deployable 8-neighbour full-graph results are in the next section). Paired differences are computed with a hierarchical bootstrap (resampling orthomosaics first, then tiles) over 10,000 replicates.
 
 - Adding neighbouring tiles increases F1 from 0.4718 to 0.5205. Moving from tile + 512 px context to the 3x3 average is not statistically significant on its own: paired-bootstrap delta +0.0136 (point difference 0.0147), CI [-0.032, +0.036], p = 0.20.
 - Mean-field smoothing gives the largest single gain: +0.0578 on top of a single tile, and +0.0152 on top of the 3x3 average. Both CIs exclude zero (note that I did not run a direct paired test comparing those two gains against each other).
@@ -113,13 +114,37 @@ All rows here use the same frozen SimDINOv2-B/16 embeddings and the canonical li
 - Out of the 349 net tiles corrected by mean-field smoothing, 301 are in mixed neighbourhoods (where 3 to 5 out of 8 neighbours share the tile's true class). As expected, tiles sitting right on class boundaries lose accuracy (-55 net tiles).
 - For mean-field smoothing, using only the closest ring of neighbours works best (tiles are 224 px with a 112 px stride, so ±112 px corresponds to 50% overlap): 0.5294, compared to 0.5102 at ±224 px and 0.4957 at ±336 px. Validation follows the same order (0.4891 vs 0.4737 at ±224 px). Combining multiple rings gives 0.5195 to 0.5228. I did not compute CIs for these radius comparisons, so treat them as point estimates.
 
-## Does it hold on other backbones?
+## Does it hold on other backbones? (Deployable full graph vs annotated-only oracle)
 
-![Context and smoothing on eight backbones](figures/readme/09_multibackbone.png)
+The earlier 8-backbone table (`results/tile_context_2026-11-01/multibackbone_smoothing.csv`) restricted the graph to annotated tiles only (6.53 neighbours/tile on test, i.e., "good neighbours" along human-drawn transects). That acts as a non-deployable oracle and inflates F1 by +0.025 to +0.035 (reaching 0.5306–0.5394). The table below reports the deployable full-graph results using all 8.00 true neighbours per tile (80,088 annotated + 40,076 unannotated auxiliary tiles = 120,164 nodes; auxiliary extraction verified against canonical embeddings at cosine >= 0.99989), followed by the neighbour-weighting tests explaining why nothing recovers the oracle gap.
 
-To make sure this was not specific to SimDINOv2-B, I ran the same split, probe, and tile graph on eight backbones: five frozen (SimDINOv2-B, SimDINOv2-L, DINOv3-B, DINOv3-L, DINOv3-H+) and three LoRA fine-tuned models (DINOv3-L r=8, SimDINOv2-B r8a16, SimDINOv2-L r=8, all seed 0). Here I used wider smoothing grids on validation (beta from 0.1 to 16, 1 to 12 iterations). The SimDINOv2-B row matches the dedicated decoding run to within 0.0001 / 0.0000 / 0.0003 (0.4720 / 0.5207 / 0.5362 vs 0.4719 / 0.5207 / 0.5359; the probe-arms run gave 0.4718 / 0.5205).
+### Deployable full graph (all 8 true neighbours, no annotation mask)
 
-| Backbone | Single tile | + mean field | 3x3 mean | 3x3 + mean field | Mean field on 3x3, 95% CI |
+![Context and smoothing on eight backbones (full graph vs oracle)](figures/readme/09_multibackbone.png)
+
+| Backbone | Single tile (`R0`) | `R0 + MF` | `R0 + Wconf` | `3x3` (`R3`) | `R3 + MF` | `R3 + Wconf` | `R3+Wconf` (8 cls) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| DINOv3-B, frozen | 0.4713 | 0.4928 | 0.5028 | 0.4976 | 0.5031 | **0.5089** | **0.6998** |
+| SimDINOv2-L, frozen | 0.4756 | 0.4943 | 0.5014 | 0.5010 | 0.5017 | 0.5076 | 0.6980 |
+| DINOv3-L, frozen | 0.4791 | 0.5006 | 0.5040 | 0.4997 | 0.5036 | 0.5065 | 0.6964 |
+| DINOv3-H+, frozen | 0.4805 | 0.5033 | **0.5053** | 0.4993 | **0.5050** | 0.5050 | 0.6943 |
+| DINOv3-L + LoRA r=8, seed 0 | 0.4856 | 0.4988 | 0.5007 | **0.5013** | 0.5019 | 0.4998 | 0.6872 |
+| SimDINOv2-B + LoRA r8a16, seed 0 | 0.4748 | 0.4885 | 0.4928 | 0.4938 | 0.4941 | 0.5004 | 0.6880 |
+| SimDINOv2-L + LoRA r=8, seed 0 | 0.4808 | 0.4944 | 0.4928 | 0.4997 | 0.5002 | 0.5002 | 0.6878 |
+| SimDINOv2-B, frozen | 0.4720 | 0.4898 | 0.4979 | 0.4748\* | 0.4784\* | 0.4823\* | 0.6632\* |
+
+*\*On frozen SimDINOv2-B `R3` (full graph), validation selects `C = 0.01` instead of `0.001`.*
+
+- On all 8 true neighbours, smoothing still gives a statistically significant gain on all 8 backbones (all 95% hierarchical bootstrap CIs exclude zero): +0.013 to +0.023 for uniform `R0 + MF` (p <= 0.015), and +0.012 to +0.031 for confidence-weighted `R0 + Wconf` (weights `(max_c P_j)^4`, no training, p <= 0.010).
+- All deployable context recipes hit roughly the same 0.505–0.509 ceiling: `R3 + Wconf` (0.5089), `R0 + Wconf` (0.5053, a single 224 px forward pass per tile), two-view `R2` (`[224 ; ctx512@224]`, 0.5059; +entropy MF on 8 neighbours = 0.5065), and native high-resolution crops (`512 center` = 0.4958, `224+1024_center` = 0.5046, `224+512_center + MF` = 0.5047).
+- Nothing recovers the 0.525–0.539 annotated-only oracle ("good neighbours" only). On frozen SimDINOv2-B (`research/gnn_grid_2026-10-31/out/decoding_full/weighted_fullgraph.json`), the 18.4% off-transect neighbours are real tundra tiles whose predicted class agrees with the centre tile only 43.0% of the time (vs 68.7% for annotated neighbours). A binary domain classifier (`W_domain`) trained to tell annotated from off-transect tiles only gets val AUC 0.642 (test F1 0.4967). A supervised edge-utility classifier combining predicted class, confidence, entropy, edge direction, and embedding cosine similarity (`W_appris`) gets AUC 0.792 but test F1 0.4975, matching simple confidence weighting (`W_conf` = 0.4978, `W_entropie` = 0.4977) and staying about 0.027 below the oracle (0.5246). Full-graph `GATv2` also stops at 0.4934, and drops to 0.4717–0.4731 when given 448/512 native crops because neighbour cosine similarity rises from 0.82 to 0.95–0.97.
+- In the native-resolution control (384, 448, 512, and 1024 px without resizing, `research/native_scale_2026-11-26/`), larger native crops with central 14x14 patch pooling (`center`) improve isolated tiles by +0.016 to +0.024 (DINOv3-B 0.4870 at 448 px, SimDINOv2-B 0.4958 at 512 px). This also shows that the drop at 1024 px was not caused by downsampling to 224 px (native 1024 `cls` is 0.4417 / 0.3825 vs resized 0.4402 / 0.3879). Even so, native crops do not beat `R2` and degrade 3x3 averaging, smoothing, and GATv2 because of heavy overlap between neighbours.
+
+### Annotated-only subgraph reference (non-deployable oracle)
+
+To document the +0.025 to +0.035 annotation-mask inflation, the table below keeps the earlier annotated-only subgraph runs (`results/tile_context_2026-11-01/multibackbone_smoothing.csv`):
+
+| Backbone | Single tile | + mean field (oracle) | 3x3 mean (oracle) | 3x3 + mean field (oracle) | Mean field on 3x3, 95% CI |
 |---|---:|---:|---:|---:|---|
 | DINOv3-L, frozen | 0.4791 | 0.5328 | 0.5262 | **0.5394** | +0.0133 [0.002, 0.076] |
 | DINOv3-H+, frozen | 0.4805 | 0.5316 | 0.5238 | 0.5380 | +0.0142 [0.003, 0.057] |
@@ -130,26 +155,17 @@ To make sure this was not specific to SimDINOv2-B, I ran the same split, probe, 
 | SimDINOv2-B + LoRA r8a16, seed 0 | 0.4748 | 0.5184 | 0.5217 | 0.5306 | +0.0089 [-0.005, 0.025] |
 | SimDINOv2-L + LoRA r=8, seed 0 | 0.4808 | 0.5191 | 0.5254 | 0.5349 | +0.0094 [0.003, 0.055] |
 
-- Mean-field smoothing helps on single tiles for all eight backbones (+0.034 to +0.059 F1, every CI excluding zero).
-- Adding smoothing on top of the 3x3 average gives a smaller extra boost (+0.009 to +0.015), with CIs excluding zero on five of the eight backbones.
-- After context and smoothing, all eight backbones fall in a narrow range from 0.5306 to 0.5394 (a 0.009 spread), compared to 0.4713 to 0.4856 on single tiles (0.014). The gap between models shrinks after post-processing, though I did not test that difference formally.
-- The highest point estimate is frozen DINOv3-L at 0.5394, just 0.0014 ahead of DINOv3-H+. No paired tests were run between backbones here, so this is just an ordering of point estimates. The SimDINOv2-B reference is 0.5362 here vs 0.5359 in its own run.
-- On the 3x3 setup, five of the eight models pick interior grid values, while DINOv3-H+ and DINOv3-L still hit the maximum number of iterations (12) and SimDINOv2-B LoRA hits the maximum beta (16). Several single-tile rows also hit a grid boundary, so smoothing gains may still be slightly under-estimated.
-- The three fine-tuned models are single-seed (seed 0) here, and frozen models have only one run, so none of these rows has an inter-seed standard deviation.
-
 ### Does PEFT help under context and smoothing?
 
-Each fine-tuned model above has a matching frozen backbone. Here are the paired differences over the same 9 test orthomosaics:
+On the deployable full graph (`research/tile_context_fullgraph_2026-11-26/out/peft_pairs_fullgraph.csv`), the small single-tile PEFT edge (+0.003 to +0.006) disappears and turns negative across all three pairs under `R0 + Wconf`:
 
-| Pair | Single tile, PEFT minus frozen | 3x3 + mean field, PEFT minus frozen | Difference in smoothing gain |
-|---|---|---|---|
-| DINOv3-L | +0.0064 [-0.041, +0.020] | -0.0042 [-0.108, +0.010] | +0.0002 [-0.058, +0.012] |
-| SimDINOv2-B | +0.0028 [-0.011, +0.018] | -0.0056 [-0.051, +0.010] | -0.0065 [-0.052, +0.0003] |
-| SimDINOv2-L | +0.0053 [-0.009, +0.013] | -0.0009 [-0.012, +0.016] | -0.0004 [-0.008, +0.041] |
+| Pair | Single tile (`R0`) | Full-graph `R0 + Wconf` (8 nbrs) | Full-graph `R3 + MF` (8 nbrs) | Oracle `3x3 + MF` (ref.) |
+|---|---|---|---|---|
+| DINOv3-L | +0.0064 [-0.041, +0.020] | -0.0034 [-0.078, +0.036] | -0.0017 [-0.107, +0.019] | -0.0042 [-0.108, +0.010] |
+| SimDINOv2-B | +0.0028 [-0.011, +0.018] | -0.0051 [-0.058, +0.011] | +0.0157\* [+0.006, +0.039] | -0.0056 [-0.051, +0.010] |
+| SimDINOv2-L | +0.0053 [-0.009, +0.013] | -0.0086 [-0.020, +0.004] | -0.0014 [-0.011, +0.046] | -0.0009 [-0.012, +0.016] |
 
-- On single tiles, PEFT is slightly ahead in all three pairs (+0.003 to +0.006), which is consistent with the 42-model leaderboard.
-- Once context and smoothing are applied, that small advantage disappears and slightly flips (-0.006 to 0.000). None of the three differences is statistically different from zero with 9 maps.
-- PEFT does not get a bigger boost from smoothing either (-0.007 to +0.000). In short, there is no evidence that fine-tuning helps once the neighbourhood is used; the direction is consistent across all three pairs, even if 9 maps are not enough to prove it strictly.
+*\*Driven by `C = 0.01` selected on frozen SimDINOv2-B `R3` (0.4784).* None of the deployable `R0 + Wconf` contrasts is statistically different from zero with 9 maps, and all three point in favour of the frozen backbone.
 
 ## Learned aggregation
 
@@ -216,7 +232,7 @@ Since ARCA, DRYI, and RUBC stay close to zero for all models, they lower macro F
 - Dropping the three rare classes raises macro F1 by about 0.18 (median +0.179): the 42 configurations go from 0.3547–0.5079 (11 classes) to 0.4805–0.6984 (8 classes).
 - The model ordering almost does not change: Spearman 0.991, Kendall 0.965. 26 models keep the exact same rank, 10 move by 1 place, 4 by 2 places, and only 2 move by 3 or more.
 - Those two models are DINOv3-B with full fine-tuning (9 places down) and DINOv3-B with attention-only tuning (3 places down). That shift comes entirely from the three dropped classes, which account for 3/11 of the 11-class average: DINOv3-B full has the highest ARCA F1 among the 42 models (0.039, worth about +0.0035 in macro F1). Only nine models get a non-zero ARCA score, and none exceeds 0.040.
-- The best recipe (3x3 mean + mean field) gets 0.5359 in 11 classes and 0.7369 in 8 classes.
+- On the annotated-only oracle subgraph, 3x3 mean + mean field gets 0.5359 in 11 classes and 0.7369 in 8 classes. On the deployable 8-neighbour full graph, the best score is 0.5089 in 11 classes and 0.6998 in 8 classes (frozen DINOv3-B `R3 + Wconf`).
 
 Rows are sorted by ascending 8-class F1; the last column indicates which run each value comes from.
 
@@ -228,12 +244,12 @@ Rows are sorted by ascending 8-class F1; the last column indicates which run eac
 | GATv2, 2 layers | 0.4891 | 0.6725 | aggregation |
 | Uniform mean over the graph | 0.4924 | 0.6770 | aggregation |
 | GATv2, 3 layers | 0.4933 | 0.6783 | aggregation |
-| Attention over the 3x3 window | 0.5085 | 0.6957 | probe-arms |
-| Attention, positions shuffled | 0.5115 | 0.6999 | probe-arms |
-| 3x3 mean | 0.5207 | 0.7160 | decoding |
-| Single tile + mean field | 0.5297 | 0.7284 | decoding |
-| 3x3 mean + ICM | 0.5332 | 0.7331 | decoding |
-| 3x3 mean + mean field | 0.5359 | 0.7369 | decoding |
+| Attention over the 3x3 window (oracle subgraph) | 0.5085 | 0.6957 | probe-arms |
+| Attention, positions shuffled (oracle subgraph) | 0.5115 | 0.6999 | probe-arms |
+| 3x3 mean (oracle subgraph) | 0.5207 | 0.7160 | decoding |
+| Single tile + mean field (oracle subgraph) | 0.5297 | 0.7284 | decoding |
+| 3x3 mean + ICM (oracle subgraph) | 0.5332 | 0.7331 | decoding |
+| 3x3 mean + mean field (oracle subgraph) | 0.5359 | 0.7369 | decoding |
 
 These setups correspond to the red diamonds in the figure above. Single tile is 0.6488 in the 42-configuration table (clean baseline) and 0.6489 here (decoding run).
 
@@ -250,12 +266,15 @@ These setups correspond to the red diamonds in the figure above. Single tile is 
 
 ## Ongoing work
 
-The follow-up work currently in progress focuses on whether these findings generalize beyond Arctic-TVC:
+The follow-up work currently in progress tests whether these findings hold beyond Arctic-TVC.
 
-- **A second dataset (Léo).** Four aerial sites in southern Québec, about 355k nadir tiles at 224 px. I use it as an external validation dataset, not as extra training data for the benchmark above. No results from it are reported in this README yet.
-- **Self-supervised pretraining on Léo.** `leo-explora-ssl/` adapts a SimDINOv2-B/16 checkpoint on Léo tiles using an ExPLoRA-style recipe (LoRA on early blocks, DINO + iBOT + KoLeo, EMA teacher, 3 seeds) and probes the resulting checkpoints back on Arctic-TVC. So far the result is negative: across all 10 checkpoints (epochs 5 to 50, mean of 3 seeds), the adapted features stay below frozen SimDINOv2-B in both the 3x3 context view (-0.002 to -0.013 vs 0.4932) and the fused view (-0.007 to -0.017 vs 0.5059). On single tiles, it only catches up to parity by epoch 50 (+0.0005 vs 0.4721). Since the frozen baseline is a single deterministic run, there is no paired CI here and the consistent 10-out-of-10 pattern is the main evidence. A 50-epoch run may still be under-trained, so a longer run is not ruled out. Results: `results/leo_explora_ssl/`.
-- **Domain shift.** A first pilot found a correlation between distribution discrepancy (MMD, optimal transport) and transfer performance, and that association replicated in a second experiment. However, I could not show that discrepancy adds information beyond RankMe, so I do not make any claim about it yet. Discrepancy-guided alignment is on hold until a discrepancy score shows clear incremental value over RankMe.
-- **Broader model screening.** Initial frozen probes for three extra foundation models all score below DINOv3-H+ (0.4805): SigLIP 2 ViT-B/16 at 0.4475, SatlasPretrain Aerial SwinB at 0.4373, and C-RADIO v4-H at 0.3764. Not all three are Earth-observation models, they are single-seed and outside the canonical ranking, and their preprocessing is not yet fully aligned (ImageNet normalization assumed for Satlas; C-RADIO evaluated at 224 px instead of its native 512 px), so this is not a fair head-to-head comparison yet.
+A second dataset (Léo) covers four aerial sites in southern Québec, with about 355k nadir tiles at 224 px. I use it for external validation rather than extra training data for the benchmark above, and no results from it are reported in this README yet.
+
+For self-supervised pretraining on Léo, `leo-explora-ssl/` adapts a SimDINOv2-B/16 checkpoint on Léo tiles using an ExPLoRA-style setup (LoRA on early blocks, DINO + iBOT + KoLeo, EMA teacher, 3 seeds) and probes the checkpoints back on Arctic-TVC. So far the result is negative: across all 10 checkpoints (epochs 5 to 50, mean of 3 seeds), the adapted features stay below frozen SimDINOv2-B in both the 3x3 context view (-0.002 to -0.013 vs 0.4932) and the fused view (-0.007 to -0.017 vs 0.5059). On single tiles, it only reaches parity by epoch 50 (+0.0005 vs 0.4721). Because the frozen baseline is a single deterministic run, there is no paired CI here and the consistent 10-out-of-10 pattern is the main evidence. A 50-epoch run may still be under-trained, so a longer run is not ruled out. Results are in `results/leo_explora_ssl/`.
+
+On domain shift, a first pilot found a correlation between distribution discrepancy (MMD, optimal transport) and transfer performance, and that association replicated in a second experiment. However, I could not show that discrepancy adds information beyond RankMe, so I do not make any claim about it yet. Discrepancy-guided alignment is on hold until a discrepancy score shows clear added value over RankMe.
+
+For broader model screening, initial frozen probes for three extra foundation models all score below DINOv3-H+ (0.4805): SigLIP 2 ViT-B/16 at 0.4475, SatlasPretrain Aerial SwinB at 0.4373, and C-RADIO v4-H at 0.3764. Not all three are Earth-observation models, they are single-seed and outside the canonical ranking, and their preprocessing is not yet aligned (ImageNet normalization assumed for Satlas; C-RADIO evaluated at 224 px instead of its native 512 px), so this is not a fair head-to-head comparison yet.
 
 The domain-shift reports (P0 pilot and P1 replication) are kept locally only. All scalar outputs supporting the sections above are committed in this repository.
 
@@ -307,8 +326,12 @@ Two practical notes:
 | Per-class table | tile counts, per-class F1 | `splits/*_11cls.csv`, `per_class_f1.csv` |
 | Non-linear readouts | 0 of 33, 2 of 24 | `results/rapport_data/head_sweep_summary.csv` |
 | Context and aggregation arms, 8 classes | 12 arms, two schemas | `results/tile_context_2026-11-01/arms_8cls.csv` |
-| Context and smoothing on 8 backbones | F1, paired deltas | `results/tile_context_2026-11-01/multibackbone_smoothing.csv` |
-| PEFT against its frozen backbone | paired differences | `results/tile_context_2026-11-01/peft_pairs.csv` |
+| Context and smoothing on 8 backbones (deployable full graph) | F1, paired deltas, 8-class | `research/tile_context_fullgraph_2026-11-26/out/multibackbone_smoothing_fullgraph.csv` |
+| PEFT against its frozen backbone (deployable full graph) | paired differences | `research/tile_context_fullgraph_2026-11-26/out/peft_pairs_fullgraph.csv` |
+| Neighbour weighting and domain/utility classifiers | val/test F1, AUCs, agreement | `research/gnn_grid_2026-10-31/out/decoding_full/weighted_fullgraph.json`, `weighted_fullgraph_r2.json` |
+| Native-resolution control (384–1024 px) | probes, fusion, geometry, full-graph MF | `research/native_scale_2026-11-26/{out/summary,followup/*,fullgraph/fullgraph_probes_mf}.json` |
+| Context and smoothing on 8 backbones (oracle reference) | F1, paired deltas | `results/tile_context_2026-11-01/multibackbone_smoothing.csv` |
+| PEFT against its frozen backbone (oracle reference) | paired differences | `results/tile_context_2026-11-01/peft_pairs.csv` |
 | Deployable or upper bound | flag per configuration | `results/baseline_clean_2026-10-08/summary.csv` |
 
 Two 8-class scoring conventions appear in the committed files: `arms_8cls.csv` and `per_class_f1.csv` keep the 321 test tiles from the three dropped classes (matching `f1_macro_8cls_test`), whereas `f1_8cls` in `recipe_comparisons.json` and `gnn_canonical.json` removes those tiles before scoring (about +0.006 higher). The README table and figures use the first convention.
