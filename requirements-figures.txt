@@ -1,0 +1,8 @@
+# Lightweight dependencies to rebuild all README figures and run CPU tests (no PyTorch)
+numpy
+pandas
+scipy
+matplotlib
+pyyaml
+scikit-learn
+PyWavelets

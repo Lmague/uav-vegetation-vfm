@@ -1,17 +1,20 @@
-# Contexte spatial déployable sur les 8 vraies voisines (26–27 nov. 2026)
+# Deployable 8-neighbour spatial context and smoothing
 
-Réplication complète de la table 8 backbones (`multibackbone_smoothing_fullgraph.csv`) et des paires PEFT (`peft_pairs_fullgraph.csv`) sur le graphe complet à 8,00 vraies voisines par tuile (80 088 tuiles annotées + 40 076 tuiles auxiliaires hors transect = 120 164 nœuds, sans masque d'annotation).
+Full replication of the 8-backbone smoothing table (`out/multibackbone_smoothing_fullgraph.csv`) and the 3 PEFT-vs-frozen pairs (`out/peft_pairs_fullgraph.csv`) on the complete 8-neighbour graph (80,088 annotated tiles plus 40,076 off-transect auxiliary tiles = 120,164 nodes, no annotation mask at inference).
 
-## Provenance Narval (vérifiée)
-- Extraction des tuiles auxiliaires pour les 8 backbones : job GPU `10765124` (`COMPLETED 0:0`, 31 min 09 s, alignement vérifié $\cos \ge 0{,}99989$ contre `features_tile.npy`).
-- Sondes, lissage (uniforme, ICM, pondération par confiance `Wconf` $\gamma=4$) et bootstrap hiérarchique sur 10 000 réplicats : job CPU `10765125` (`COMPLETED 0:0`, 31 min 23 s, BLAS mono-thread).
+## Scripts
 
-## Fichiers de sortie
-- `out/multibackbone_smoothing_fullgraph.csv` : 8 backbones (`R0`, `R0+MF`, `R0+Wconf`, `R3`, `R3+MF`, `R3+Wconf`, IC95 hiérarchiques).
-- `out/peft_pairs_fullgraph.csv` : 3 paires PEFT contre gelé (`DINOv3-L`, `SimDINOv2-B`, `SimDINOv2-L`).
+- `extract_aux_8backbones.py`: extracts frozen and seed-0 LoRA embeddings for the 40,076 off-transect auxiliary windows across all 8 backbones (alignment verified against canonical tile embeddings at cosine >= 0.99989).
+- `run_multibackbone_fullgraph.py`: fits canonical linear probes (single-thread BLAS), runs uniform mean-field, ICM, and confidence-weighted smoothing (`gamma = 4`), and computes paired hierarchical bootstrap 95% CIs (10,000 replicates over orthomosaics then tiles).
 
-## Résumé des constats
-1. Le meilleur score déployable atteint 0,5089 (11 cls) et 0,6998 (8 cls) pour `DINOv3-B` gelé `R3 + Wconf`, devant `SimDINOv2-L` (0,5076), `DINOv3-L` (0,5065) et `DINOv3-H+` `R0 + Wconf` (0,5053), au même plafond que le zoom-out concaténé `R2` (`0,5059`).
-2. Le gain de lissage reste positif sur les 8 backbones : `R0 + MF` ajoute `+0,013` à `+0,023` ($p \le 0{,}015$) et `R0 + Wconf` ajoute `+0,012` à `+0,031` ($p \le 0{,}010$), avec tous les IC95 au-dessus de 0.
-3. L'avantage du PEFT sur tuile seule disparaît et s'inverse légèrement sur les 3 paires sous `R0 + Wconf` (`-0,0034` à `-0,0086`).
-4. Restreindre le voisinage aux 6,53 voisines annotées (« bons voisins ») montait artificiellement le score à `0,5306–0,5394` (+0,025 à +0,035), et aucune pondération ni aucun classifieur (`W_domain` AUC 0,642 → 0,4967 ; `W_appris` AUC 0,792 → 0,4975 ; `W_conf` 0,4978) ne permet de séparer les bons des mauvais voisins depuis les images (cf. `research/gnn_grid_2026-10-31/out/decoding_full/weighted_fullgraph.json`).
+## Outputs
+
+- `out/multibackbone_smoothing_fullgraph.csv`: 8 backbones (`R0`, `R0_MF`, `R0_Wconf`, `R3`, `R3_MF`, `R3_Wconf`, 8-class scores, and paired 95% CIs).
+- `out/peft_pairs_fullgraph.csv`: 3 PEFT-vs-frozen pairs (`DINOv3-L`, `SimDINOv2-B`, `SimDINOv2-L`, seed 0).
+
+## Summary
+
+1. The best deployable score reaches 0.5089 (11 classes) and 0.6998 (8 classes) with frozen DINOv3-B (`3x3 average + confidence-weighted smoothing`), followed by frozen SimDINOv2-L (0.5076), DINOv3-L (0.5065), and DINOv3-H+ single tile + confidence smoothing (0.5053), matching the frozen 512 px zoom-out fusion baseline (0.5058).
+2. Smoothing improves macro F1 across all 8 backbones (all 95% CIs exclude zero): +0.013 to +0.023 for uniform mean-field (p <= 0.015), and +0.012 to +0.031 for confidence-weighted smoothing (p <= 0.010).
+3. The small single-tile PEFT edge disappears and turns slightly negative across all 3 pairs under confidence-weighted smoothing (-0.0034 to -0.0086).
+4. Restricting smoothing to annotated transect neighbours only (6.53 neighbours/tile) inflates F1 to 0.5306-0.5394 (+0.025 to +0.035), and neither a domain classifier (val AUC 0.642, test F1 0.4967) nor a supervised edge-utility classifier (val AUC 0.792, test F1 0.4975) recovers that gap over simple confidence weighting (0.4978; see `research/gnn_grid_2026-10-31/out/decoding_full/weighted_fullgraph.json`).

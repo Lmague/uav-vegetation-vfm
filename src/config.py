@@ -89,7 +89,7 @@ class TrainCfg:
 
 @dataclass
 class ProbeCfg:
-    C_grid: list[float] = field(default_factory=lambda: [0.01, 0.1, 1.0, 10.0])
+    C_grid: list[float] = field(default_factory=lambda: [1.0e-4, 1.0e-3, 0.01, 0.1, 1.0, 10.0])
     max_iter: int = 2000
     knn_k: list[int] = field(default_factory=lambda: [5, 10, 20])
     include_finetuned: bool = False

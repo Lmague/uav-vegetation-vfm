@@ -12,13 +12,20 @@ from __future__ import annotations
 import argparse
 import os
 
+# Single-thread BLAS before importing numpy/scipy via ``src``.
+for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+           "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
+    os.environ[_v] = "1"
+
 from src import utils
 from src.config import load_config
 from src.features import count_layerwise_layers, load_features, load_layerwise
 from src.latent import drop_class, layerwise_curves, metrics_on
 
 
-def _model_keys(cfg):
+def _model_keys(cfg, only=None):
+    if only:
+        return list(only)
     keys = list(cfg.models)
     if cfg.probe.include_finetuned:
         keys += list(cfg.finetuned_models)
@@ -28,16 +35,17 @@ def _model_keys(cfg):
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--config", required=True)
+    ap.add_argument("--only", nargs="*", default=None, help="restrict to specific model keys")
     ap.add_argument("--layerwise", action="store_true",
-                    help="courbes RankMe/anisotropie couche-par-couche (features layerwise requises)")
-    ap.add_argument("--layerwise-model", default=None, help="modèle pour les courbes (défaut: 1er)")
+                    help="layerwise RankMe/anisotropy curves (requires layerwise features)")
+    ap.add_argument("--layerwise-model", default=None, help="model for layerwise curves (default: first)")
     ap.add_argument("--n-layers", type=int, default=None,
-                    help="nb de couches layerwise (défaut: compté sur les fichiers présents)")
+                    help="number of layerwise files (default: auto-detected)")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
     utils.maybe_mount_drive(cfg.env)
-    keys = _model_keys(cfg)
+    keys = _model_keys(cfg, args.only)
     rk_split, an_split = cfg.latent.rankme_split, cfg.latent.anisotropy_split
 
     # Modèles canoniques uniquement (12cls) → source_schema homogène "12cls".

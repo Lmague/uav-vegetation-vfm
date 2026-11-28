@@ -24,7 +24,7 @@ import torch
 from torch.optim import AdamW
 
 from .metrics import confusion, eval_classifier, per_class_count, per_class_f1
-from .utils import CLASS_NAMES, ensure_dir, run_tag, save_json
+from .utils import CLASS_NAMES, CLASS_NAMES_11, ensure_dir, run_tag, save_json
 
 
 # ----------------------------------------------------------------- optim / schedule
@@ -71,15 +71,24 @@ def build_scheduler(optimizer, cfg, steps_per_epoch: int = 1):
     return cosine
 
 
-def _maybe_head_only(model, cfg, epoch: int) -> bool:
-    """Optionnel : gèle le backbone pendant ``head_only_epochs`` epochs (défaut off)."""
+def _maybe_head_only(model, cfg, epoch: int, trainable_names: set[str] | None = None) -> bool:
+    """Optionally freeze non-head parameters during the first ``head_only_epochs`` epochs.
+
+    When ``trainable_names`` is provided, only parameters that were originally trainable
+    (preserving PEFT/LoRA/MHSA/norm freezes) are unfrozen once ``epoch >= head_only_epochs``.
+    """
     hoe = cfg.train.head_only_epochs
     if not hoe or hoe <= 0:
         return False
     in_phase = epoch < hoe
     for n, p in model.named_parameters():
         is_head = ("head" in n) or n.startswith("fc")
-        p.requires_grad = True if is_head else (not in_phase)
+        if is_head:
+            p.requires_grad = True
+        elif in_phase:
+            p.requires_grad = False
+        else:
+            p.requires_grad = True if trainable_names is None else (n in trainable_names)
     return in_phase
 
 
@@ -169,7 +178,10 @@ def _save_ckpt(path, model, optimizer, scaler, epoch, best_f1, history) -> None:
 
 
 def _load_ckpt(path, model, optimizer=None, scaler=None) -> tuple[int, float, dict]:
-    ckpt = torch.load(path, map_location="cpu")
+    try:
+        ckpt = torch.load(path, map_location="cpu", weights_only=False)
+    except TypeError:
+        ckpt = torch.load(path, map_location="cpu")
     model.load_state_dict(ckpt["model_state_dict"])
     if optimizer is not None and "optimizer_state_dict" in ckpt:
         optimizer.load_state_dict(ckpt["optimizer_state_dict"])
@@ -190,7 +202,8 @@ def fit(cfg, model, groups: dict, loaders: dict, criterion, device,
     optimizer = build_optimizer(groups, cfg)
     steps_per_epoch = len(loaders["train"])
     hoe = cfg.train.head_only_epochs or 0
-    # Sauvegarde des LR initiaux AVANT tout step scheduler (nécessaire pour le reset LP-FT).
+    _initial_trainable = {n for n, p in model.named_parameters() if p.requires_grad}
+    # Save initial LRs before any scheduler step (needed for LP-FT reset).
     _initial_lrs = [float(g["lr"]) for g in optimizer.param_groups]
     if hoe == 0:
         # Chemin standard — STRICTEMENT IDENTIQUE à avant (aucun risque de régression).
@@ -246,7 +259,7 @@ def fit(cfg, model, groups: dict, loaders: dict, criterion, device,
             else:
                 scheduler = cosine_r
             _sched_built = True
-        _maybe_head_only(model, cfg, epoch)
+        _maybe_head_only(model, cfg, epoch, trainable_names=_initial_trainable)
         lrs = [g["lr"] for g in optimizer.param_groups]
         train_loss = train_one_epoch(model, loaders["train"], optimizer, scaler,
                                      criterion, device, scheduler=scheduler, use_amp=use_amp,
@@ -291,12 +304,14 @@ def fit(cfg, model, groups: dict, loaders: dict, criterion, device,
     if os.path.exists(best_path):
         _load_ckpt(best_path, model)
     test_preds, test_labels = predict(model, loaders["test"], device, use_amp, amp_dtype=amp_dtype)
-    test = eval_classifier(test_labels, test_preds, cfg.model.num_classes)
+    n_classes = cfg.model.num_classes
+    class_names = CLASS_NAMES_11 if n_classes == 11 else CLASS_NAMES[:n_classes]
+    test = eval_classifier(test_labels, test_preds, n_classes)
     results = {
         "model": cfg.model.name,
         "regime": cfg.regime,
         "tag": tag,
-        "classes": CLASS_NAMES,
+        "classes": class_names,
         "config": {
             "epochs": cfg.train.epochs,
             "batch_size": cfg.data.batch_size,
@@ -314,12 +329,12 @@ def fit(cfg, model, groups: dict, loaders: dict, criterion, device,
         "best_val_select": best_f1,
         "best_val_f1_macro": best_f1,
         "test": {**test,
-                 "f1_per_class": per_class_f1(test_labels, test_preds),
-                 "n_per_class": per_class_count(test_labels)},
-        "confusion_matrix": confusion(test_labels, test_preds).tolist(),
+                 "f1_per_class": per_class_f1(test_labels, test_preds, class_names),
+                 "n_per_class": per_class_count(test_labels, class_names)},
+        "confusion_matrix": confusion(test_labels, test_preds, n_classes).tolist(),
         "history": history,
     }
     save_json(results, os.path.join(cfg.paths.results_dir, f"{tag}_results.json"))
-    print(f"[{tag}] test F1m(12)={test['f1_macro_all']:.4f} "
-          f"F1m(pres)={test['f1_macro_pres']:.4f} acc={test['accuracy']:.4f} → résultats sauvés")
+    print(f"[{tag}] test F1m({n_classes})={test['f1_macro_all']:.4f} "
+          f"F1m(pres)={test['f1_macro_pres']:.4f} acc={test['accuracy']:.4f} -> saved")
     return results

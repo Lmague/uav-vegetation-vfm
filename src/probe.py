@@ -10,10 +10,9 @@ Protocole linear-eval standard (DINOv2/v3), reproduit EXACTEMENT depuis les note
 
 Réutilise les MÊMES features cachées que l'analyse latente. scikit-learn paresseux.
 
-Optimisation (passe nocturne 2) : la sélection du C est faite sur un sous-échantillon
-train de taille ``cgrid_subsample`` (20 000 par défaut — 1.5× plus rapide que full 49K
-sur ResNet-50), puis le fit final utilise TOUTES les données d'entraînement avec le
-C sélectionné.  Reproductibilité : seed=42 + ``np.random.RandomState`` séparé du reste.
+Par défaut, ``cgrid_subsample=None`` (train complet pour la grille C et le fit final,
+conforme au protocole canonique). Un sous-échantillon optionnel peut être passé pour du
+débogage rapide. Reproductibilité : seed=42 + ``np.random.RandomState`` séparé du reste.
 """
 from __future__ import annotations
 
@@ -36,7 +35,7 @@ def _standardize(feats: dict):
 
 
 def linear_probe(feats: dict, n_classes: int, class_names: list[str],
-                 C_grid=(0.01, 0.1, 1.0, 10.0), max_iter: int = 2000, seed: int = 42,
+                 C_grid=(1.0e-4, 1.0e-3, 0.01, 0.1, 1.0, 10.0), max_iter: int = 2000, seed: int = 42,
                  selection_metric: str = "f1_macro_all",
                  cgrid_subsample: int | None = None) -> dict:
     """Régression logistique multi-classes ; le C est sélectionné sur val.
@@ -92,7 +91,7 @@ def linear_probe(feats: dict, n_classes: int, class_names: list[str],
         results = Parallel(n_jobs=-1)(delayed(_fit_one)(c) for c in C_grid)
     else:
         results = [_fit_one(c) for c in C_grid]
-    best_c, best_f1, _ = max(results, key=lambda x: x[1])
+    best_c, best_f1, _ = max(results, key=lambda x: (x[1], x[0]))
 
     # Fit final sur TOUT le train avec best_c (le fit qui sera évalué sur test).
     best = make_canonical_lr(C=best_c, max_iter=max_iter, random_state=seed)

@@ -4,13 +4,14 @@ Every number is read from a result file at run time, nothing is typed in by hand
 
 Sources (relative to the repository root):
     results/baseline_clean_2026-10-08/{per_seed.csv,per_class_f1.csv,statistics/pairwise_effects.csv}
-    results/tile_context_2026-11-01/{canonical_probe_arms,recipe_ablation,recipe_comparisons,
-        r3_vs_r2_bootstrap,gnn_canonical,strata,neighbourhood_scale}.json
+    results/tile_context_2026-11-01/{canonical_probe_arms,gnn_canonical,strata,
+        neighbourhood_scale}.json, arms_8cls.csv
     research/tile_context_fullgraph_2026-11-26/out/{multibackbone_smoothing_fullgraph,peft_pairs_fullgraph}.csv
     research/gnn_grid_2026-10-31/out/decoding_full/{weighted_fullgraph,weighted_fullgraph_r2}.json
-    results/rapport_data/{loo_triage,dim_probe_summary}.csv
+    results/rapport_data/{loo_triage,dim_probe_summary,geometry_models}.csv
     results/datacurve_lora/{results_agg,frozen_probe_results_agg}.csv
     lora_spatial_v2/results_spatial_summary.csv
+    spatial_datacurve/class_composition.csv
     splits/{train,test}_11cls.csv
 
 Output: figures/readme/*.png
@@ -106,11 +107,11 @@ LABELS = {
     "vitb16_mhsa_old": "ViT-B/16 ImageNet, attention only",
     "resnet50_fulft_sota": "ResNet-50 ImageNet, full fine-tuning",
     "vitb16_scratch_old": "ViT-B/16 from scratch",
-    "ctxdistill_dA_tL": "Context distillation, tile only at inference",
-    "ctxdistill_dA_tEMA": "Context distillation, EMA teacher, tile only",
-    "ctxdistill_dB_tL": "Context fusion, fine-tuned",
-    "ctxdistill_dB_tSL_r8a16": "Context fusion, SimDINOv2-B LoRA r8a16",
-    "ctxdistill_dB_tSL_r2a4": "Context fusion, SimDINOv2-B LoRA r2a4",
+    "ctxdistill_dA_tL": "DINOv3-B, context distillation (tile only)",
+    "ctxdistill_dA_tEMA": "DINOv3-B, context distillation, EMA (tile only)",
+    "ctxdistill_dB_tL": "DINOv3-B + 1024 px context, fine-tuned",
+    "ctxdistill_dB_tSL_r8a16": "SimDINOv2-B + 512 px context, LoRA r8a16",
+    "ctxdistill_dB_tSL_r2a4": "SimDINOv2-B + 512 px context, LoRA r2a4",
     "simdinov2_vitb16_lora_r8_b911": "SimDINOv2-B, LoRA r=8, blocks 9-11",
     "simdinov2_vitb16_lora_r8_b611": "SimDINOv2-B, LoRA r=8, blocks 6-11",
     "simdinov2_vitb16_lora_r2": "SimDINOv2-B, LoRA r=2",
@@ -174,7 +175,6 @@ def fig_leaderboard():
     sc = baseline_scores()
     vs = baseline_vs(ref)
     arms = jload(TC / "canonical_probe_arms.json")["records"]
-    abl = jload(TC / "recipe_ablation.json")
     f = lambda a: arms[a]["metrics"]["f1_macro_pres"]
 
     tier_a_keys = list(vs.index) + [ref]
@@ -197,7 +197,7 @@ def fig_leaderboard():
         recipe("DINOv3-H+ frozen, tile + conf. smoothing (8 nbrs)", float(fg.loc["dinov3_vith16plus_lvd", "R0_Wconf"]), "recipe"),
         recipe("SimDINOv2-B frozen, tile + conf. smoothing (8 nbrs)", float(fg.loc["simdinov2_vitb16", "R0_Wconf"]), "recipe"),
     ]
-    tier_b = sorted([recipe("Tile + 512 px context †", f("R2"), "recipe"),
+    tier_b = sorted([recipe("SimDINOv2-B frozen + 512 px context †", f("R2"), "recipe"),
                      ctx_ft("ctxdistill_dB_tL"), ctx_ft("ctxdistill_dB_tSL_r8a16"),
                      ctx_ft("ctxdistill_dB_tSL_r2a4")], key=lambda r: -r["mean"])
     tier_a_rows = [dict(label=LABELS[k], mean=sc.loc[k, "mean"],
@@ -205,7 +205,7 @@ def fig_leaderboard():
                         kind=kind_of(k), key=k) for k in tier_a]
 
     tiers = [("Map-level smoothing on frozen backbones (all 8 neighbouring tiles, no training)", tier_c),
-             ("Wider 512 px context as input", tier_b),
+             ("Wider context crop as input (512 px or 1024 px)", tier_b),
              ("Single tile only", tier_a_rows)]
     ys, y = [], 0.0
     layout = []
@@ -274,6 +274,10 @@ def fig_leaderboard():
     b.grid(axis="y", visible=False)
     b.tick_params(axis="y", length=0)
     b.set_xlim(-0.17, 0.065)
+    b.text(-0.052, -5.0,
+           "Multi-tile and context runs\n(evaluated outside the 39-model\nsingle-tile BH test family)",
+           ha="center", va="center", fontsize=8.3, color=COL["grey"], style="italic",
+           bbox=dict(facecolor="white", edgecolor=COL["light"], boxstyle="round,pad=0.4"))
     a.set_xlabel("macro F1, 11 classes, test split")
     b.set_xlabel("difference vs DINOv3 ViT-H+/16 (95% CI over 9 test maps)")
     a.set_title("Named ranking, three levels of input", fontsize=11.5)
@@ -282,7 +286,7 @@ def fig_leaderboard():
     fig.text(0.125, -0.005,
              f"Left: clean baseline, mean of 3 seeds with ±SD bars (frozen models: one run). Green diamonds: frozen backbones with spatial context or smoothing.\n"
              f"Right: paired bootstrap over maps then tiles, filled = survives Benjamini-Hochberg at 5% ({n_rej} of {len(vs)} single-tile models). "
-             f"† requires a 512 px context patch at inference.",
+             f"† requires a 512 px or 1024 px context crop at inference.",
              fontsize=8, color=COL["grey"], va="top")
     save(fig, "01_leaderboard.png")
 
@@ -307,36 +311,42 @@ def fig_adaptation():
         ("Tile + 512 px + smoothing (8 nbrs)", wf_r2["R2h_entropie"]["test"], COL["attn"]),
     ]
 
-    fig, ax = plt.subplots(figsize=(9.0, 7.2))
+    fig, ax = plt.subplots(figsize=(9.2, 7.6))
     ax.axvline(frozen, color=COL["frozen"], ls="--", lw=1.2, zorder=1)
     best_adapt = sc.loc[rows[-1], "mean"]
     ax.axvline(best_adapt, color=COL["lora"], ls=":", lw=1.1, zorder=1)
 
+    col_attn_norm = "#2A9D8F"
     labels = []
     for i, k in enumerate(rows):
-        c = COL["attn"] if ("mhsa" in k or "norm" in k) else COL["full"] if k.endswith("_full") else COL["lora"]
+        c = col_attn_norm if ("mhsa" in k or "norm" in k) else COL["full"] if k.endswith("_full") else COL["lora"]
         seeds = sc.loc[k, "seeds"]
         ax.scatter(seeds, [i] * len(seeds), s=16, color=c, alpha=0.45, zorder=2)
         ax.scatter([sc.loc[k, "mean"]], [i], s=60, color=c, edgecolor="white", linewidth=0.7, zorder=3)
         labels.append(LABELS[k].replace("SimDINOv2-B, ", ""))
-    y0 = len(rows) + 1.4
-    ax.text(0.4555, y0, "Spatial context and smoothing, same frozen backbone", fontsize=9,
-            fontweight="bold", color=COL["ink"], va="center",
-            bbox=dict(facecolor="white", edgecolor="none", pad=1.5), zorder=4)
+
+    sep_y = len(rows) + 0.35
+    ax.axhline(sep_y, color=COL["light"], lw=1.2, ls="--", zorder=1)
     extra_y = []
     for j, (lab, val, c) in enumerate(extra):
-        y = y0 + 0.9 + j
+        y = sep_y + 1.0 + j
         extra_y.append(y)
         ax.scatter([val], [y], s=62, facecolor=c, edgecolor="white", marker="D", linewidth=0.7, zorder=3)
         labels.append(lab)
     top_y = extra_y[-1]
-    ax.text(frozen - 0.001, top_y, f"frozen {frozen:.4f}", color=COL["frozen"], fontsize=8.5,
+    ax.text(0.456, top_y + 0.95, "Spatial context and smoothing (same frozen backbone)", fontsize=9,
+            fontweight="bold", color=COL["ink"], va="center",
+            bbox=dict(facecolor="white", edgecolor="none", pad=1.5), zorder=4)
+    ax.text(0.456, sep_y - 0.55, "Single-tile adaptation (16 regimes)", fontsize=9,
+            fontweight="bold", color=COL["ink"], va="center",
+            bbox=dict(facecolor="white", edgecolor="none", pad=1.5), zorder=4)
+    ax.text(frozen - 0.0008, -0.65, f"frozen {frozen:.4f}", color=COL["frozen"], fontsize=8.5,
             ha="right", va="center", bbox=dict(facecolor="white", edgecolor="none", pad=1.0), zorder=4)
-    ax.text(best_adapt + 0.001, -0.55, f"best adaptation {best_adapt:.4f}", color=COL["lora"],
+    ax.text(best_adapt + 0.0008, -0.65, f"best adaptation {best_adapt:.4f}", color=COL["lora"],
             fontsize=8.5, ha="left", va="center", bbox=dict(facecolor="white", edgecolor="none", pad=1.0), zorder=4)
     ax.set_yticks(list(range(len(rows))) + extra_y)
     ax.set_yticklabels(labels, fontsize=9)
-    ax.set_ylim(-1.05, top_y + 0.85)
+    ax.set_ylim(-1.2, top_y + 1.55)
     ax.set_xlim(0.455, 0.515)
     ax.set_xlabel("macro F1, 11 classes, test split (dots: seeds, large dot: mean)")
     ax.grid(axis="y", visible=False)
@@ -345,7 +355,7 @@ def fig_adaptation():
     from matplotlib.lines import Line2D
     handles = [
         Line2D([], [], marker="o", ls="", color=COL["lora"], label="LoRA"),
-        Line2D([], [], marker="o", ls="", color=COL["attn"], label="attention / norm"),
+        Line2D([], [], marker="o", ls="", color=col_attn_norm, label="attention / norm"),
         Line2D([], [], marker="o", ls="", color=COL["full"], label="full fine-tuning"),
         Line2D([], [], marker="D", ls="", color=COL["attn"], label="spatial context / smoothing"),
         Line2D([], [], marker="D", ls="", color=COL["scratch"], label="GATv2"),
@@ -370,8 +380,6 @@ def fig_context():
         ("Single tile", base, "base", "baseline"),
         ("Uniform smoothing (8 nbrs)", sel["UNI_FULL"]["test"], "dep",
          f"{sel['UNI_FULL']['test'] - base:+.4f} vs single tile"),
-        ("Domain-weighted smoothing", sel["W_domain"]["test"], "dep",
-         f"{sel['W_domain']['test'] - base:+.4f}  (val AUC {diag['domain_auc_val']:.3f})"),
         ("Learned edge-utility smoothing", sel["W_appris"]["test"], "dep",
          f"{sel['W_appris']['test'] - base:+.4f}  (val AUC {diag['utilite_auc_val']:.3f})"),
         ("Confidence-weighted smoothing", sel["W_conf"]["test"], "dep",
@@ -380,12 +388,14 @@ def fig_context():
          f"{arms['R2']['metrics']['f1_macro_pres'] - base:+.4f} vs single tile"),
         ("Tile + 512 px + smoothing (8 nbrs)", sel_r2["R2h_entropie"]["test"], "dep",
          f"{sel_r2['R2h_entropie']['test'] - base:+.4f} vs single tile"),
+        ("Domain-weighted smoothing (diag.)", sel["W_domain"]["test"], "ora",
+         f"{sel['W_domain']['test'] - base:+.4f}  (trained on mask, val AUC {diag['domain_auc_val']:.3f})"),
         ("Smoothing on annotated nbrs only", sel["ORACLE"]["test"], "ora",
          f"{sel['ORACLE']['test'] - base:+.4f}  (6.53 nbrs, upper bound)"),
     ]
     n = len(rows)
-    ys = [n - 1 - i + (0.45 if i < 7 else 0.0) for i in range(n)]
-    fig, ax = plt.subplots(figsize=(9.8, 5.0))
+    ys = [n - 1 - i + (0.45 if i < 6 else 0.0) for i in range(n)]
+    fig, ax = plt.subplots(figsize=(10.0, 5.1))
     ax.set_xlim(0.455, 0.542)
     for (lab, v, kind, note), y in zip(rows, ys):
         if kind == "base":
@@ -400,7 +410,7 @@ def fig_context():
         ax.text(v + 0.0014, y, f"{v:.4f}", fontsize=8.5, color=c, ha="left", va="center")
         ax.text(1.02, y, note, transform=ax.get_yaxis_transform(), fontsize=8.5, va="center",
                 color=COL["ink"] if kind == "dep" else COL["grey"])
-    sep_y = (ys[6] + ys[7]) / 2.0
+    sep_y = (ys[5] + ys[6]) / 2.0
     ax.axhline(sep_y, color=COL["light"], lw=1.2, ls="--")
     ax.set_yticks(ys)
     ax.set_yticklabels([r[0] for r in rows], fontsize=9)
@@ -408,7 +418,7 @@ def fig_context():
     ax.set_xlabel("macro F1, 11 classes, test split")
     ax.grid(axis="y", visible=False)
     ax.text(0.540, sep_y + 0.12, "deployable (all 8 neighbouring tiles / 512 px crop)", fontsize=8.2, color=COL["attn"], va="bottom", ha="right")
-    ax.text(0.540, sep_y - 0.12, "annotated transect neighbours only", fontsize=8.2, color=COL["nbr"], va="top", ha="right")
+    ax.text(0.540, sep_y - 0.12, "uses transect annotation mask (not deployable)", fontsize=8.2, color=COL["nbr"], va="top", ha="right")
     ax.set_title("Spatial context and neighbour weighting (frozen SimDINOv2-B/16)")
     save(fig, "03_context_ladder.png")
 
@@ -420,8 +430,8 @@ def fig_smoothing():
     names = ["8 of 8\nsame label", "6 to 7", "3 to 5", "0 to 2\n(boundary)"]
     net = [s["flips"]["net"] for s in st]
     share = [s["part"] * 100 for s in st]
-    fig, (a, b) = plt.subplots(1, 2, figsize=(11.2, 4.2),
-                               gridspec_kw={"width_ratios": [1, 1.1], "wspace": 0.5})
+    fig, (a, b) = plt.subplots(1, 2, figsize=(11.8, 4.4),
+                               gridspec_kw={"width_ratios": [1, 1.15], "wspace": 0.42})
     cols = [COL["attn"] if v > 0 else COL["nbr"] for v in net]
     a.bar(range(4), net, color=cols, width=0.62)
     for i, (v, s) in enumerate(zip(net, share)):
@@ -437,7 +447,7 @@ def fig_smoothing():
     a.grid(axis="x", visible=False)
     a.set_ylabel("net tiles corrected by mean field")
     a.set_xlabel("neighbours (of 8) sharing the tile's true label", labelpad=6)
-    a.set_title(f"Net {sum(net)} tiles corrected on top of the 3x3 mean")
+    a.set_title(f"Net {sum(net)} tiles corrected (annotated subgraph)")
 
     grid = sc["grid"]
     lab = {"+-112": "±112 px", "+-224": "±224 px", "+-336": "±336 px", "112+224": "±112 and ±224",
@@ -452,10 +462,10 @@ def fig_smoothing():
         b.text(g["test"] + 0.0045, yy, f"{g['test']:.4f}  ({g['voisins_moyens']:.1f} nbrs)", va="center", fontsize=8.5)
     b.set_yticks(y)
     b.set_yticklabels([lab[g["scale"]] for g in grid], fontsize=9)
-    b.set_xlim(0.45, 0.615)
+    b.set_xlim(0.45, 0.625)
     b.set_ylim(-0.6, len(grid) - 0.1)
     b.grid(axis="y", visible=False)
-    b.set_xlabel("macro F1, single tile + mean field (annotated subgraph)")
+    b.set_xlabel("macro F1, single tile + mean field (annotated subgraph)", fontsize=9.5)
     b.set_title("Smoothing radius: nearest tiles only")
     save(fig, "04_smoothing.png")
 
@@ -474,7 +484,7 @@ def fig_gnn():
             ("Attention, neighbour positions shuffled", g["L1p"]["f1"], seeds("L1p"), g["L1p"]["n_params"], False),
             ("CNN on the 3x3 window", g["L2"]["f1"], seeds("L2"), g["L2"]["n_params"], False),
         ]),
-        ("All 8 neighbouring tiles (120,118 nodes)", g["MEAN9"]["f1"], [
+        ("All 8 neighbouring tiles (120,118 nodes, GNN graph)", g["MEAN9"]["f1"], [
             ("Uniform mean over the graph", g["MEAN9"]["f1"], None, 0, True),
             ("GATv2, 2 layers", g["GNN2"]["f1"], g["GNN2"]["f1_std"], g["GNN2"]["n_params"], False),
             ("GATv2, 3 layers", g["GNN3"]["f1"], g["GNN3"]["f1_std"], g["GNN3"]["n_params"], False),
@@ -643,7 +653,7 @@ def fig_datacurve():
     sp = pd.read_csv(ROOT / "lora_spatial_v2" / "results_spatial_summary.csv")
     sg = sp.groupby("fraction_cible")["f1_macro_pres_test"].agg(["mean", "std"]).reset_index()
 
-    fig, ax = plt.subplots(figsize=(8.6, 4.8))
+    fig, ax = plt.subplots(figsize=(9.4, 4.8))
     ax.plot(r["fraction"] * 100, r["f1_pres_mean"], marker="o", ms=5, color=COL["lora"], lw=1.8,
             label="LoRA r=8, random subsets")
     ax.fill_between(r["fraction"] * 100, r["f1_pres_mean"] - r["f1_pres_std"],
@@ -654,9 +664,9 @@ def fig_datacurve():
             label="LoRA r=8, spatially blocked subsets")
     ax.scatter(sp["fraction_cible"] * 100, sp["f1_macro_pres_test"], s=13, color=COL["nbr"], alpha=0.4, zorder=2)
     ax.set_xscale("log")
-    ticks = [0.5, 1, 5, 10, 25, 50, 100]
+    ticks = [0.5, 1, 5, 10, 25, 50, 75, 100]
     ax.set_xticks(ticks)
-    ax.set_xticklabels([f"{t:g}%" for t in ticks])
+    ax.set_xticklabels([f"{t:g}%" for t in ticks], fontsize=8.5)
     ax.minorticks_off()
     ax.set_xlabel("share of the 49,281 training tiles")
     ax.set_ylabel("macro F1, 11 classes, test split")
@@ -667,7 +677,10 @@ def fig_datacurve():
     ax.annotate(f"blocked 1% subsets hold only {c1.min()} to {c1.max()}\nof the 8 main classes",
                 xy=(1, sg.loc[sg["fraction_cible"] == 0.01, "mean"].iloc[0]), xytext=(1.5, 0.25),
                 fontsize=8.5, color=COL["nbr"], arrowprops=dict(arrowstyle="-", color=COL["nbr"], lw=0.8))
-    ax.set_title("Label efficiency depends on how the subset is drawn")
+    ax.set_title("Label efficiency on DINOv3-B depends on how the subset is drawn")
+    fig.subplots_adjust(bottom=0.18)
+    fig.text(0.125, 0.02, "Shaded band: ±SD across 3 seeds. Small red dots: individual spatially blocked draws.",
+             fontsize=8, color=COL["grey"], va="bottom")
     save(fig, "07_data_curve.png")
 
 
@@ -730,21 +743,38 @@ def fig_classes8():
     a.scatter([sc.loc["dinov3_vith16plus_lvd", "f11"]], [sc.loc["dinov3_vith16plus_lvd", "f8"]],
               s=120, facecolor="none", edgecolor=COL["ink"], linewidth=1.1, zorder=4,
               label="best frozen (DINOv3-H+)")
-    labels = {"ctxdistill_dB_tL": (12, -26, True), "dinov3_vitb16_lvd_full": (34, -30, True),
-              "vitb16_scratch_old": (6, 0, False)}
-    for k, (dx, dy, arrow) in labels.items():
-        a.annotate(LABELS[k], (sc.loc[k, "f11"], sc.loc[k, "f8"]), xytext=(dx, dy),
+    labels = {
+        "ctxdistill_dB_tL": ("DINOv3-B + 1024 px\ncontext (FT)", 12, -32, True),
+        "dinov3_vitb16_lvd_full": (LABELS["dinov3_vitb16_lvd_full"], 22, -36, True),
+        "vitb16_scratch_old": (LABELS["vitb16_scratch_old"], 6, 0, False),
+    }
+    for k, (txt, dx, dy, arrow) in labels.items():
+        a.annotate(txt, (sc.loc[k, "f11"], sc.loc[k, "f8"]), xytext=(dx, dy),
                    textcoords="offset points", fontsize=8, color=COL["ink"],
                    ha="left" if dx > 0 else "right",
                    arrowprops=dict(arrowstyle="-", lw=0.8, color=COL["grey"]) if arrow else None)
     arms = arms_scores()
     if len(arms):
-        a.scatter(arms.f11, arms.f8, s=58, marker="D", color=COL["nbr"], edgecolor="white",
-                  linewidth=0.7, zorder=3, label="context and decoding arms")
-        top_arm = arms.loc[arms["f8"].idxmax()]
-        a.annotate(top_arm["label"] + " (annotated only)", (top_arm["f11"], top_arm["f8"]), xytext=(-14, 4),
-                   textcoords="offset points", fontsize=7.8, color=COL["nbr"], ha="right", va="center",
-                   arrowprops=dict(arrowstyle="-", lw=0.8, color=COL["nbr"]))
+        annot_only = {
+            "3x3 mean", "Single tile + mean field", "3x3 mean + ICM",
+            "3x3 mean + mean field", "Attention over the 3x3 window",
+            "Attention, positions shuffled",
+        }
+        arm_ann = arms[arms["label"].isin(annot_only)]
+        arm_fg = arms[~arms["label"].isin(annot_only)]
+        if len(arm_fg):
+            a.scatter(arm_fg.f11, arm_fg.f8, s=50, marker="s", facecolor="white",
+                      edgecolor=COL["full"], linewidth=1.2, zorder=3,
+                      label="full-graph / 3x3 CNN arms")
+        if len(arm_ann):
+            a.scatter(arm_ann.f11, arm_ann.f8, s=58, marker="D", color=COL["nbr"],
+                      edgecolor="white", linewidth=0.7, zorder=3,
+                      label="annotated-only context arms")
+            top_arm = arm_ann.loc[arm_ann["f8"].idxmax()]
+            a.annotate(top_arm["label"] + "\n(annotated only)", (top_arm["f11"], top_arm["f8"]),
+                       xytext=(-14, 10), textcoords="offset points", fontsize=7.8, color=COL["nbr"],
+                       ha="right", va="center",
+                       arrowprops=dict(arrowstyle="-", lw=0.8, color=COL["nbr"]))
     fg_f = FG_OUT / "multibackbone_smoothing_fullgraph.csv"
     if fg_f.exists():
         fg = pd.read_csv(fg_f).set_index("backbone")
@@ -752,8 +782,8 @@ def fig_classes8():
         f8_dep = float(fg.loc["dinov3_vitb16_lvd", "R3_Wconf_8cls"])
         a.scatter([f11_dep], [f8_dep], s=66, marker="D", color=COL["attn"], edgecolor="white",
                   linewidth=0.8, zorder=4, label="best deployable (DINOv3-B, 8 nbrs)")
-        a.annotate("DINOv3-B, 3x3 + conf.\nsmoothing (8 nbrs)", (f11_dep, f8_dep), xytext=(-14, 14),
-                   textcoords="offset points", fontsize=7.8, color=COL["attn"], ha="right", va="bottom",
+        a.annotate("DINOv3-B, 3x3 + conf.\nsmoothing (8 nbrs)", (f11_dep, f8_dep), xytext=(-24, 6),
+                   textcoords="offset points", fontsize=7.8, color=COL["attn"], ha="right", va="center",
                    arrowprops=dict(arrowstyle="-", lw=0.9, color=COL["attn"]))
 
     a.set_xlim(0.345, 0.548)
@@ -837,13 +867,13 @@ def fig_multibackbone():
 
     b.axvline(0, color=COL["grey"], ls="--", lw=1)
     b.errorbar(d["d_mf_R0"], y - 0.14, xerr=[d["d_mf_R0"] - d["lo_mf_R0"], d["hi_mf_R0"] - d["d_mf_R0"]],
-               fmt="o", ms=5, color="#4C72B0", ecolor="#7FA7D6", elinewidth=1.3, capsize=2,
-               label="uniform smoothing vs single tile", zorder=3)
+               fmt="o", ms=5, color="#7FA7D6", markeredgecolor="#4C72B0", ecolor="#7FA7D6",
+               elinewidth=1.3, capsize=2, label="uniform smoothing vs single tile", zorder=3)
     b.errorbar(d["d_wconf_R0"], y + 0.14, xerr=[d["d_wconf_R0"] - d["lo_wconf_R0"], d["hi_wconf_R0"] - d["d_wconf_R0"]],
-               fmt="D", ms=5, color=COL["attn"], ecolor=COL["attn"], elinewidth=1.3, capsize=2,
+               fmt="s", ms=5, color=COL["lora"], ecolor=COL["lora"], elinewidth=1.3, capsize=2,
                label="conf. smoothing vs single tile", zorder=3)
-    blo = min(d[["lo_mf_R0", "lo_wconf_R0"]].min()) - 0.004
-    bhi = max(d[["hi_mf_R0", "hi_wconf_R0"]].max()) + 0.004
+    blo = min(0.0, float(d[["lo_mf_R0", "lo_wconf_R0"]].min().min())) - 0.003
+    bhi = float(d[["hi_mf_R0", "hi_wconf_R0"]].max().max()) + 0.004
     b.set_xlim(blo, bhi)
     b.set_ylim(-0.6, len(d) - 0.25)
     b.grid(axis="y", visible=False)
@@ -851,10 +881,11 @@ def fig_multibackbone():
     b.set_title("Smoothing gain, 95% CI over 9 maps")
     h2, l2 = b.get_legend_handles_labels()
     fig.legend(h + h2, l + l2, loc="lower center", ncol=4, fontsize=8.3, frameon=False,
-               bbox_to_anchor=(0.5, 0.07))
-    fig.subplots_adjust(bottom=0.31)
-    fig.text(0.5, 0.015, "All 8 neighbouring tiles per tile (120,164 nodes); all 8/8 CIs exclude 0. "
-             "Fine-tuned rows use seed 0.",
+               bbox_to_anchor=(0.5, 0.075))
+    fig.subplots_adjust(bottom=0.32)
+    fig.text(0.5, 0.012,
+             "All 8 neighbouring tiles per tile (120,164 nodes); all 8/8 CIs exclude 0. "
+             "Fine-tuned rows use seed 0. Frozen SimDINOv2-B 3x3 selects C=0.01 on val.",
              fontsize=8, color=COL["grey"], va="bottom", ha="center")
     save(fig, "09_multibackbone.png")
 
@@ -912,11 +943,11 @@ def fig_per_class():
                    fontweight="bold" if delta >= 0.05 else "normal")
 
     a.scatter(df["max230"], y, s=34, marker="|", color=COL["ink"], linewidth=1.6,
-              label="best of 230 probes", zorder=3)
+              label="max across 230 baseline probes", zorder=3)
     a.scatter(df["frozen"], y, s=56, marker="o", color=COL["frozen"], edgecolor="white",
               linewidth=0.7, label="Frozen DINOv3-H+", zorder=4)
     a.scatter(df["ctxf"], y, s=58, marker="D", color=COL["nbr"], edgecolor="white",
-              linewidth=0.7, label="Context fusion (fine-tuned) †", zorder=5)
+              linewidth=0.7, label="DINOv3-B + 1024 px context (FT) †", zorder=5)
 
     a.text(1.09, 0.7, "3 rare classes (< 400 train tiles)\ndropped in 8-class view",
            ha="right", va="center", fontsize=8.2, color=COL["nbr"], style="italic")
@@ -950,7 +981,7 @@ def fig_per_class():
                bbox_to_anchor=(0.5, 0.055))
     fig.subplots_adjust(bottom=0.22)
     fig.text(0.5, 0.01, "Clean baseline per_class_f1.csv; RHOL is absent from val and test and dropped. "
-             "† non-deployable upper bound (mean of 3 seeds).", fontsize=8, color=COL["grey"],
+             "† uses a 1024 px context crop at inference (mean of 3 seeds).", fontsize=8, color=COL["grey"],
              va="bottom", ha="center")
     save(fig, "10_per_class_f1.png")
 

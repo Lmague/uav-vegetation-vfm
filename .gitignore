@@ -70,7 +70,7 @@ __pycache__/
 # Données & sorties        : embeddings/ results/ results_v3/ out/ splits/
 # Datasets & tuiles        : "Data for Early Detection .../"  "High-Resolution Arctic .../"  tiles/
 # Artefacts lourds         : *.zip *.pdf *.npy *.pth
-# Hors transport           : legacy/ notebooks/ scripts/ "After Training/" .claude/
+# Excluded by default: legacy/, notebooks/, scripts/ (except whitelisted), local notes/reports.
 # Utilitaires chemin absolu : validate_split.py  _gen_project_index.py
 
 # --- Fichiers de résultats canoniques (reproduction du manuscrit) ---
@@ -84,6 +84,7 @@ __pycache__/
 # Nouveaux résultats 2026-09-13 (cités par le manuscrit et le compendium)
 !/results/rapport_data/
 /results/rapport_data/*
+!/results/rapport_data/geometry_models.csv
 !/results/rapport_data/loo_triage.csv
 !/results/rapport_data/loo_triage.json
 !/results/rapport_data/loo_triage.md
@@ -197,12 +198,11 @@ __pycache__/
 !/results/leo_explora_ssl/figures/*.png
 !/results/leo_explora_ssl/figures/*.pdf
 
-# Self-distillation contexte→tuile (2026-08-29) — voir scripts/context_distill_README.md :
+# Self-distillation context->tile scripts:
 !/scripts/context_crop.py
 !/scripts/context_distill.py
 !/scripts/slurm_context_crop.sh
 !/scripts/slurm_context_distill.sh
-!/scripts/context_distill_README.md
 !/scripts/context_distill_geometry.py
 !/scripts/slurm_context_distill_geometry.sh
 !/scripts/context_fused_probe_controls.py
@@ -213,31 +213,20 @@ __pycache__/
 !/scripts/context_size_sweep.py
 !/scripts/slurm_context_size_sweep.sh
 !/scripts/slurm_context_bouguessa_controls.sh
-!/NEEDS_HUMAN.md
-!/mail_bouguessa.md
 !/scripts/slurm_context_distill_extract_sig.sh
-# Extraction sig_embeddings des runs SimDINOv2-B (rangs 2-3 du tableau maître, absents
-# du palier de significativité faute d'embeddings) — 2026-09-13 :
 !/scripts/slurm_context_extract_sig_simb.sh
 
-# Dose-réponse d'alignement : SSL aérien Léo (ExPLoRA, vrai SSL non supervisé) → Arctic-TVC.
-# Sonde gelée tile / ctx-seul / fusion @512 par checkpoint (2026-10-04) — voir
-# scripts/leo_ssl_alignment_README.md :
+# Léo SSL alignment probe scripts:
 !/scripts/leo_ssl_extract_arctic.py
 !/scripts/slurm_leo_ssl_arctic_extract.sh
 !/scripts/leo_ssl_alignment_probe.py
 !/scripts/leo_ssl_alignment_plot.py
-!/scripts/leo_ssl_alignment_README.md
 !/scripts/slurm_leo_ssl_alignment_probe.sh
 !/scripts/leo_ssl_harvest.sh
 
-# SSL aérien Léo × annotations (kNN/logreg/MLP + ensemble de seeds, 2026-10-04) —
-# voir scripts/leo_ssl_annot_README.md :
+# Léo SSL annotation evaluation scripts:
 !/scripts/leo_ssl_annot_extract.sh
 !/scripts/leo_ssl_annot_bench.py
-!/scripts/leo_ssl_annot_README.md
-# Variante Narval (GPU, sans raster) : index local + extraction depuis les JPEG web + job
-# enchaîné après les 3 seeds SSL (2026-10-04) :
 !/scripts/leo_ssl_annot_prepare_index.py
 !/scripts/leo_ssl_annot_extract_web.py
 !/scripts/slurm_leo_ssl_annot_eval.sh
@@ -310,8 +299,9 @@ __pycache__/
 !/results/tile_context_2026-11-01/
 /results/tile_context_2026-11-01/*
 !/results/tile_context_2026-11-01/*.json
-!/scripts/make_readme_context_figures.py
 !/scripts/make_readme_plots.py
+!/scripts/generate_splits_11cls.py
+!/requirements-figures.txt
 # Trois modèles EO 2026 (une seed) — sonde citée par make_tables.py (annexe D) et par le README :
 !/scripts/probe_eofm_11cls.py
 !/results/probe_knn_eofm_11cls.json
@@ -349,13 +339,11 @@ __pycache__/
 # Les données brutes, les embeddings et les poids ne sont pas versionnés.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Splits canoniques (11 classes) et l'affectation des orthomosaïques.
+# Canonical splits (11-class and 12-class CSVs) and orthomosaic assignment.
 !/splits/
 /splits/*
 !/splits/*_11cls.csv
 !/splits/split_v3_assignment.json
-!/splits/split_assignment.json
-!/splits/README.md
 
 # Clean baseline : scores par seed, F1 par classe, statistiques appariées.
 !/results/baseline_clean_2026-10-08/
@@ -381,7 +369,6 @@ __pycache__/
 !/spatial_datacurve/
 /spatial_datacurve/*
 !/spatial_datacurve/class_composition.csv
-!/.mailmap
 !/requirements-lock.txt
 !/results/tile_context_2026-11-01/arms_8cls.csv
 !/splits/train.csv

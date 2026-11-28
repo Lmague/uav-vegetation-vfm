@@ -12,8 +12,8 @@ import argparse
 import json
 import os
 
-# Chiffres canoniques : BLAS mono-thread AVANT tout import de numpy/sklearn
-# (importé indirectement par ``src``). Voir AGENTS.md §4.8.
+# Canonical numbers require single-thread BLAS before importing numpy/sklearn
+# (imported indirectly by ``src``). See BASELINE_PROTOCOL.md.
 for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
            "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
     os.environ[_v] = "1"
@@ -90,13 +90,14 @@ def main() -> None:
             continue
         probe_res, knn_res = {}, {}
         for key in keys:
-            schema = utils.source_schema(key)
+            feats = load_features(cfg, key)
+            max_lbl = max(int(feats[s][1].max()) for s in feats)
+            schema = "11cls_no_rhol" if max_lbl <= 10 else "12cls"
             drops = utils.pass_drops(tag, schema)
             if drops is None:
-                print(f"[probe:{tag}] {key:24s} passe non applicable (source {schema}) → SKIP")
+                print(f"[probe:{tag}] {key:24s} pass not applicable (source {schema}) -> SKIP")
                 continue
-            feats = load_features(cfg, key)
-            for d in drops:  # cascade DÉCROISSANTE (ordre imposé par pass_drops)
+            for d in drops:  # descending cascade (order enforced by pass_drops)
                 feats = {s: drop_class(*feats[s], d) for s in feats}
             probe_res[key] = linear_probe(feats, n_classes, names,
                                           tuple(cfg.probe.C_grid), cfg.probe.max_iter,

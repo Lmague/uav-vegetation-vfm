@@ -8,8 +8,6 @@ Nécessite : all_scores_consolidated.json + old consolidated (f7bc3e4^) pour les
 métriques spectrales perdues à la régénération.
 
 Schéma : EXCLUSIVEMENT manuscrit (f1_macro_pres_11cls, provenance without_rhol).
-
-Auteur : Hermes (eo-researcher), 2026-07-15
 """
 
 import json

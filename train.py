@@ -49,15 +49,20 @@ def main() -> None:
     for g, ps in groups.items():
         print(f"[train]   groupe '{g}': {len(ps)} tensors @ lr={cfg.optim.lr.get(g)}")
 
-    # --- loss pondérée 1/sqrt(n) depuis les effectifs du train ---
-    _, train_labels = utils.read_split_csv(os.path.join(cfg.paths.csv_dir, "train.csv"))
+    # --- class-weighted CrossEntropy loss from training split counts ---
+    train_csv = os.path.join(cfg.paths.csv_dir, "train_11cls.csv")
+    if cfg.model.num_classes != 11 or not os.path.exists(train_csv):
+        train_csv = os.path.join(cfg.paths.csv_dir, "train.csv")
+    _, train_labels = utils.read_split_csv(train_csv)
     weighting = getattr(cfg.train, "weighting", "sqrt")
     beta = getattr(cfg.train, "cui_beta", 0.999)
     weights = (build_class_weights(train_labels, cfg.model.num_classes) if weighting == "sqrt"
             else build_class_weights_effective_num(train_labels, cfg.model.num_classes, beta))
+    class_names = (utils.CLASS_NAMES_11 if cfg.model.num_classes == 11
+                   else utils.CLASS_NAMES[:cfg.model.num_classes])
     print(f"[train] weighting={weighting}" + (f" beta={beta}" if weighting != "sqrt" else ""))
     print("[train] class weights:",
-        {c: round(float(w), 3) for c, w in zip(utils.CLASS_NAMES_11, weights)})
+        {c: round(float(w), 3) for c, w in zip(class_names, weights)})
     criterion = build_criterion(train_labels, cfg.model.num_classes, device,
                                 weighting=weighting, beta=beta)
                                 

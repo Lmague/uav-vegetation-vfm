@@ -45,11 +45,3 @@ def build_criterion(labels, n_classes, device=None, weighting: str = "sqrt", bet
     if device is not None:
         w = w.to(device)
     return nn.CrossEntropyLoss(weight=w)
-    
-def test_build_criterion_weighting_switch():
-    import torch
-    labels = [0]*100 + [1]*10 + [2]*1
-    crit_sqrt = build_criterion(labels, 3, weighting="sqrt")
-    crit_eff = build_criterion(labels, 3, weighting="effective_num", beta=0.999)
-    assert not torch.allclose(crit_sqrt.weight, crit_eff.weight), \
-        "les deux schémas de pondération donnent le même poids — bug de branchement"

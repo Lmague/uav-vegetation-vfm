@@ -1,26 +1,24 @@
-# Cœur du package (src/) + CLIs
+# Core package (src/) + training / feature extraction CLIs
 torch>=2.4.0
 torchvision>=0.19.0
 timm
 numpy
+pandas
+scipy
 scikit-learn
 pyyaml
 pillow
 matplotlib
 tqdm
 
-# Optionnels selon les modèles / l'usage
-einops                # backbones ViT (DINOv3 / sslplant)
-transformers>=4.56.0  # loader HF de dinov3_vitl16_lvd (AutoModel.from_pretrained)
-huggingface_hub       # login pour le repo gated facebook/dinov3-*-lvd1689m
-scipy                 # stats (kendalltau, spearmanr) — task_a, task_b, correlations
-                      # + composantes connexes (GLSZM) et convolution NGTDM — src/texture.py
-PyWavelets            # énergies DWT par sous-bande — src/texture.py (--no-dwt pour s'en passer)
-pandas                # tables LaTeX — gen_latex_tables
-umap-learn            # visualisation UMAP — visualize_subsample (import umap)
-deepsig               # ASO / permutation tests — task_c_aso, task_c_b_paired
+# Optional dependencies depending on backbones or analysis scripts
+einops                # ViT backbones (DINOv3 / SimDINOv2)
+transformers>=4.56.0  # HuggingFace loaders (DINOv3-LVD, SigLIP 2, etc.)
+huggingface_hub       # authentication for gated checkpoints (facebook/dinov3-*-lvd1689m)
+PyWavelets            # DWT sub-band texture features (src/texture.py)
+umap-learn            # UMAP visualization (scripts/visualize_subsample.py)
+deepsig               # ASO / permutation tests
 
-# Backbones frozen externes (non pip-installables tels quels) :
-#   DINOv3   : torch.hub.load("facebookresearch/dinov3", ...)  (poids + accès requis)
-#   SimDINOv2: pip install git+https://github.com/ilyassmoummad/sslplant
-#   SatMAE   : point d'extension (poids à sourcer — voir README §Extensions)
+# External backbones (not standard PyPI packages):
+#   DINOv3   : torch.hub.load("facebookresearch/dinov3", ...) or HuggingFace Hub (gated)
+#   SimDINOv2: https://github.com/ilyassmoummad/sslplant (vendored subset in leo-explora-ssl/simdinov2/)
