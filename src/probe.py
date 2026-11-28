@@ -91,11 +91,14 @@ def linear_probe(feats: dict, n_classes: int, class_names: list[str],
         results = Parallel(n_jobs=-1)(delayed(_fit_one)(c) for c in C_grid)
     else:
         results = [_fit_one(c) for c in C_grid]
-    best_c, best_f1, _ = max(results, key=lambda x: (x[1], x[0]))
+    best_c, best_f1, best_clf = max(results, key=lambda x: (x[1], x[0]))
 
-    # Fit final sur TOUT le train avec best_c (le fit qui sera évalué sur test).
-    best = make_canonical_lr(C=best_c, max_iter=max_iter, random_state=seed)
-    best.fit(xtr_full, ytr)
+    # Fit on full train if C selection used a subsample; otherwise reuse the exact fitted estimator.
+    if cgrid_subsample is not None and cgrid_subsample < xtr_full.shape[0]:
+        best = make_canonical_lr(C=best_c, max_iter=max_iter, random_state=seed)
+        best.fit(xtr_full, ytr)
+    else:
+        best = best_clf
     ypte = best.predict(xte)
     return {
         "best_C": best_c,

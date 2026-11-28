@@ -84,9 +84,9 @@ def main() -> None:
         n_classes = len(names)
         fname = f"probe_knn_{args.output_tag}.json" if args.output_tag else "probe_knn.json"
         out = os.path.join(cfg.paths.results_dir, tag, fname)
-        # Skip si l'output existe déjà et pas --force (idempotence Makefile)
-        if not args.force and os.path.exists(out):
-            print(f"[probe:{tag}] {out} existe déjà → SKIP (utiliser --force pour re-calculer).")
+        # Skip if output already exists unless --force or --merge is passed
+        if not args.force and not args.merge and os.path.exists(out):
+            print(f"[probe:{tag}] {out} already exists -> SKIP (use --force or --merge).")
             continue
         probe_res, knn_res = {}, {}
         for key in keys:

@@ -10,7 +10,7 @@ The goal is to classify 224 px tiles (~0.5 m across) cropped from Arctic tundra 
 Main results:
 
 - Across the DINOv3 and SimDINOv2 models, changing model size or fine-tuning moves macro F1 by at most 0.015. With 9 test orthomosaics, none of these models is significantly different from the best frozen backbone. Only the weakest baselines stand out: SatMAE, frozen ResNet-50 ImageNet, and ViT-B/16 trained from scratch.
-- Using neighbouring tiles and spatial smoothing across all 8 neighbouring tiles (including unannotated tiles outside the transects, so deployable on new orthomosaics) raises macro F1 by +0.025 to +0.038 across all 8 backbones (all 95% CIs exclude zero). The best deployable score is 0.5089 (11 classes) / 0.6998 (8 classes), roughly matching a frozen two-view tile + 512 px (~1.1 m) context setup (0.5058). No backbone training is required; only the linear probe is refit.
+- Using spatial smoothing across all 8 neighbouring tiles (including unannotated tiles outside the transects, so deployable on new orthomosaics) raises single-tile macro F1 by +0.012 to +0.031 across all 8 backbones (all 8/8 paired 95% CIs exclude zero). Combining a 3x3 average with confidence-weighted smoothing reaches 0.5089 (11 classes) / 0.6998 (8 classes) on frozen DINOv3-B (+0.0376 over single tile), matching a frozen two-view tile + 512 px (~1.1 m) context setup (0.5058). No backbone training is required; only the linear probe is refit.
 - Learned neighbour aggregation (self-attention, CNN, GATv2) does not beat fixed averaging or smoothing. Using larger native-resolution crops (384–1024 px without resizing) helps isolated tiles (+0.016 to +0.024) but does not beat tile + 512 px context and hurts 3x3 averaging, smoothing, and GATv2 because adjacent crops overlap too much.
 - Restricting smoothing to annotated neighbours only ("good neighbours" along transects) reaches 0.5306–0.5394, but no classifier or edge weighting separates annotated from off-transect neighbours at test time, so real-world smoothing stays around 0.505–0.509.
 - Embedding geometry metrics can rank models slightly better than chance, but they do not predict F1 accurately.
@@ -25,7 +25,7 @@ Contents: [Ranking](#ranking-of-42-configurations) · [Adaptation](#adaptation-m
 
 ![Named ranking and significance](figures/readme/01_leaderboard.png)
 
-This ranking covers 42 configurations: 11 frozen models and 31 fine-tuned models (3 seeds each). Out of the 42, 39 take a single 224 px tile at inference; the top 3 rows require both the tile and a wider context crop (1024 px for DINOv3-B, 512 px for SimDINOv2-B), so they are deployable on orthomosaics but not comparable as single-tile models. Every model is evaluated with the exact same linear probe. The figure groups the results into three input levels: single tile (top 18 models plus 8 reference models, including frozen DINOv3-B), wider context crops as input, and map-level smoothing. The full 42-model table is folded below.
+This ranking covers 42 configurations: 11 frozen models and 31 fine-tuned models (3 seeds each). Out of the 42, 39 take a single 224 px tile at inference; the top 3 rows require both the tile and a wider context crop (1024 px for DINOv3-B, 512 px for SimDINOv2-B), so in `summary.csv` they are flagged `NO_upper_bound` to separate them from the single-tile protocol, even though wider context crops remain extractable on new orthomosaics. Every model is evaluated with the exact same linear probe. The figure groups the results into three input levels: single tile (top 18 models plus 8 reference models, including frozen DINOv3-B), wider context crops as input, and map-level smoothing. The full 42-model table is folded below.
 
 - Best frozen model: DINOv3 ViT-H+/16 at 0.4805. Best standard LoRA in this ranking: DINOv3-L at 0.4842. The difference is +0.0037 (CI [-0.034, +0.017], q = 0.76), which is not statistically significant.
 - After Benjamini-Hochberg correction, only 3 of the 38 single-tile models are significantly different from the best frozen model: SatMAE (-0.071), frozen ResNet-50 ImageNet (-0.073), and ViT-B/16 from scratch (-0.126). All other pairs fail the correction (q > 0.10), even though three of them still have paired 95% CIs excluding zero (ViT-B/16 ImageNet, Scale-MAE, and fine-tuned ResNet-50).
@@ -126,9 +126,9 @@ All numbers below use the full 8-neighbour graph (120,164 nodes, no annotation m
 | SimDINOv2-L, frozen | 0.4756 | 0.4943 | 0.5014 | 0.5010 | 0.5017 | 0.5076 | 0.6980 |
 | DINOv3-L, frozen | 0.4791 | 0.5006 | 0.5040 | 0.4997 | 0.5036 | 0.5065 | 0.6964 |
 | DINOv3-H+, frozen | 0.4805 | 0.5033 | **0.5053** | 0.4993 | **0.5050** | 0.5050 | 0.6943 |
-| DINOv3-L + LoRA r=8, seed 0 | 0.4856 | 0.4988 | 0.5007 | **0.5013** | 0.5019 | 0.4998 | 0.6872 |
 | SimDINOv2-B + LoRA r8a16, seed 0 | 0.4748 | 0.4885 | 0.4928 | 0.4938 | 0.4941 | 0.5004 | 0.6880 |
 | SimDINOv2-L + LoRA r=8, seed 0 | 0.4808 | 0.4944 | 0.4928 | 0.4997 | 0.5002 | 0.5002 | 0.6878 |
+| DINOv3-L + LoRA r=8, seed 0 | 0.4856 | 0.4988 | 0.5007 | **0.5013** | 0.5019 | 0.4998 | 0.6872 |
 | SimDINOv2-B, frozen | 0.4720 | 0.4898 | 0.4979 | 0.4748\* | 0.4784\* | 0.4823\* | 0.6632\* |
 
 *\*On frozen SimDINOv2-B 3x3 average, validation selects `C = 0.01` instead of `0.001`.*
@@ -204,21 +204,21 @@ All curves below use DINOv3-B/16.
 
 ![Per-class F1 and class support](figures/readme/10_per_class_f1.png)
 
-| Code | Taxon | Train tiles | Test tiles | Frozen DINOv3-H+ | DINOv3-B + 1024 px context (FT) |
-|---|---|---:|---:|---:|---:|
-| ALDE | Alder | 5,285 | 1,884 | 0.958 | 0.962 |
-| ARCA | Arctic-alpine | 88 | 113 | 0.000 | 0.000 |
-| BIRC | Birch | 12,845 | 4,937 | 0.837 | 0.867 |
-| DRYI | *Dryas* | 390 | 177 | 0.000 | 0.000 |
-| LICH | Lichen | 5,334 | 1,615 | 0.635 | 0.663 |
-| MOSS | Moss | 5,089 | 1,935 | 0.520 | 0.600 |
-| PETF | *Petasites* | 1,990 | 1,037 | 0.506 | 0.572 |
-| RUBC | *Rubus* (*R. chamaemorus*) | 330 | 31 | 0.000 | 0.000 |
-| SEDG | Sedge | 5,250 | 2,134 | 0.601 | 0.694 |
-| TUSS | Tussock | 8,306 | 3,189 | 0.742 | 0.769 |
-| WILL | Willow | 4,374 | 546 | 0.486 | 0.460 |
+| Class | Train tiles | Test tiles | Frozen DINOv3-H+ | DINOv3-B + 1024 px context (FT) |
+|---|---:|---:|---:|---:|
+| ALDE | 5,285 | 1,884 | 0.958 | 0.962 |
+| ARCA | 88 | 113 | 0.000 | 0.000 |
+| BIRC | 12,845 | 4,937 | 0.837 | 0.867 |
+| DRYI | 390 | 177 | 0.000 | 0.000 |
+| LICH | 5,334 | 1,615 | 0.635 | 0.663 |
+| MOSS | 5,089 | 1,935 | 0.520 | 0.600 |
+| PETF | 1,990 | 1,037 | 0.506 | 0.572 |
+| RUBC | 330 | 31 | 0.000 | 0.000 |
+| SEDG | 5,250 | 2,134 | 0.601 | 0.694 |
+| TUSS | 8,306 | 3,189 | 0.742 | 0.769 |
+| WILL | 4,374 | 546 | 0.486 | 0.460 |
 
-Three classes get an F1 of exactly zero for both models (across all 3 seeds for context fusion, and in the single run for frozen DINOv3-H+). Across all 230 probes in the clean baseline, the highest scores ever reached on those classes are 0.082 (ARCA), 0.026 (DRYI), and 0.146 (RUBC). Because these are the rarest classes, they pull the 11-class macro F1 down for every model, so it makes more sense to compare models relative to each other than to judge the absolute macro F1 alone. A twelfth class (RHOL, Rhubarb) does not appear in validation or test and is excluded.
+Three classes get an F1 of exactly zero for both models (across all 3 seeds for context fusion, and in the single run for frozen DINOv3-H+). Across all 230 probes in the clean baseline, the highest scores ever reached on those classes are 0.082 (ARCA), 0.026 (DRYI), and 0.146 (RUBC). Because these are the rarest classes, they pull the 11-class macro F1 down for every model, so it makes more sense to compare models relative to each other than to judge the absolute macro F1 alone. A twelfth class (RHOL) does not appear in validation or test and is excluded.
 
 ### The same ranking on the 8 remaining classes
 
@@ -288,7 +288,7 @@ Cloning this repository gives you all the code, configs, 11-class splits, and sc
 From a fresh clone, you can rebuild all ten figures directly from the committed tables without PyTorch or a GPU:
 
 ```bash
-pip install -r requirements-figures.txt   # numpy, pandas, scipy, matplotlib
+pip install -r requirements-figures.txt   # numpy, pandas, scipy, matplotlib, pyyaml, scikit-learn, PyWavelets
 python scripts/make_readme_plots.py       # rebuilds all ten figures from results/
 # or simply: make figures
 ```
@@ -301,13 +301,20 @@ pip install -r requirements.txt
 # 12-class split CSVs are committed; this regenerates the 11-class splits
 python scripts/generate_splits_11cls.py --splits-dir splits --out-dir splits --force
 
-# single-tile feature extraction, canonical linear probe, and latent geometry
+# single-tile feature extraction (gated DINOv3 weights require HF_TOKEN / huggingface-cli login),
+# canonical linear probe, and latent geometry
 python extract.py --config configs/frozen_dinov3_lvd.yaml
 python probe.py   --config configs/frozen_eval.yaml --only dinov3_vitb16_lvd
 python analyze.py --config configs/frozen_eval.yaml --only dinov3_vitb16_lvd
 
-# deployable 8-neighbour 3x3 average + confidence-weighted smoothing (requires auxiliary tile embeddings)
-python research/tile_context_fullgraph_2026-11-26/run_multibackbone_fullgraph.py
+# deployable 8-neighbour 3x3 average + confidence-weighted smoothing
+# (requires canonical and off-transect auxiliary embeddings; see run_mb_fullgraph_cpu.sbatch)
+python research/tile_context_fullgraph_2026-11-26/run_multibackbone_fullgraph.py \
+  --split-json <canonical_split.json> \
+  --canonical-mb-dir <canonical_embeddings_dir> \
+  --aux-dir <aux_embeddings_dir> \
+  --aux-index <aux_index.json> \
+  --out-dir research/tile_context_fullgraph_2026-11-26/out
 ```
 
 Two practical notes:

@@ -38,10 +38,14 @@ def build_class_weights_effective_num(labels: Iterable[int], n_classes: int, bet
     return w
 
 def build_criterion(labels, n_classes, device=None, weighting: str = "sqrt", beta: float = 0.999):
-    """``nn.CrossEntropyLoss`` pondérée, schéma choisi par ``weighting`` (``sqrt`` | ``effective_num``)."""
+    """Weighted ``nn.CrossEntropyLoss`` with scheme ``weighting`` in {``sqrt``, ``effective_num``}."""
     import torch.nn as nn
-    w = (build_class_weights(labels, n_classes) if weighting == "sqrt"
-         else build_class_weights_effective_num(labels, n_classes, beta))
+    if weighting == "sqrt":
+        w = build_class_weights(labels, n_classes)
+    elif weighting == "effective_num":
+        w = build_class_weights_effective_num(labels, n_classes, beta)
+    else:
+        raise ValueError(f"Unknown weighting='{weighting}' (expected 'sqrt' or 'effective_num').")
     if device is not None:
         w = w.to(device)
     return nn.CrossEntropyLoss(weight=w)

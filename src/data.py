@@ -128,8 +128,12 @@ def make_loaders(cfg, splits=("train", "val", "test"), train_aug: bool = True,
     for s in splits:
         is_train = (s == "train" and train_aug)
         tf = build_transforms("train" if is_train else "eval", mean, std, cfg.data.image_size)
-        ds = ArcticTVCDataset(os.path.join(cfg.paths.csv_dir, f"{s}.csv"),
-                              cfg.paths.tiles_dir, tf)
+        csv_path = os.path.join(cfg.paths.csv_dir, f"{s}.csv")
+        if cfg.model.num_classes == 11 and label_remap is None:
+            csv_11 = os.path.join(cfg.paths.csv_dir, f"{s}_11cls.csv")
+            if os.path.exists(csv_11):
+                csv_path = csv_11
+        ds = ArcticTVCDataset(csv_path, cfg.paths.tiles_dir, tf)
         split_indices = indices.get(s) if indices is not None else None
         if split_indices is not None or label_remap is not None:
             import numpy as _np

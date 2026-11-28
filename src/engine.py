@@ -162,13 +162,16 @@ def predict(model, loader, device, use_amp: bool = True, amp_dtype=None) -> tupl
 
 
 # ------------------------------------------------------------------- checkpoint IO
-def _save_ckpt(path, model, optimizer, scaler, epoch, best_f1, history) -> None:
+def _save_ckpt(path, model, optimizer, scaler, epoch, best_f1, history,
+               scheduler=None, patience_left: int | None = None) -> None:
     ensure_dir(os.path.dirname(path))
     payload = {
         "epoch": epoch,
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "scaler_state_dict": scaler.state_dict(),
+        "scheduler_state_dict": scheduler.state_dict() if scheduler is not None else None,
+        "patience_left": patience_left,
         "best_f1": best_f1,
         "history": history,
     }
@@ -177,7 +180,7 @@ def _save_ckpt(path, model, optimizer, scaler, epoch, best_f1, history) -> None:
     os.replace(tmp, path)
 
 
-def _load_ckpt(path, model, optimizer=None, scaler=None) -> tuple[int, float, dict]:
+def _load_ckpt(path, model, optimizer=None, scaler=None, scheduler=None) -> tuple[int, float, dict, int | None]:
     try:
         ckpt = torch.load(path, map_location="cpu", weights_only=False)
     except TypeError:
@@ -187,7 +190,10 @@ def _load_ckpt(path, model, optimizer=None, scaler=None) -> tuple[int, float, di
         optimizer.load_state_dict(ckpt["optimizer_state_dict"])
     if scaler is not None and "scaler_state_dict" in ckpt:
         scaler.load_state_dict(ckpt["scaler_state_dict"])
-    return ckpt.get("epoch", -1), ckpt.get("best_f1", 0.0), ckpt.get("history", _empty_history())
+    if scheduler is not None and ckpt.get("scheduler_state_dict") is not None:
+        scheduler.load_state_dict(ckpt["scheduler_state_dict"])
+    return (ckpt.get("epoch", -1), ckpt.get("best_f1", 0.0),
+            ckpt.get("history", _empty_history()), ckpt.get("patience_left"))
 
 
 def _empty_history() -> dict:
@@ -233,14 +239,17 @@ def fit(cfg, model, groups: dict, loaders: dict, criterion, device,
     history = _empty_history()
     start_epoch, best_f1, patience_left = 0, 0.0, cfg.train.patience
     if resume and os.path.exists(resume):
-        start_epoch, best_f1, history = _load_ckpt(resume, model, optimizer, scaler)
+        start_epoch, best_f1, history, saved_patience = _load_ckpt(
+            resume, model, optimizer, scaler, scheduler=scheduler)
+        if saved_patience is not None:
+            patience_left = int(saved_patience)
         start_epoch += 1
-        print(f"[{tag}] reprise à l'epoch {start_epoch + 1}, best_f1={best_f1:.4f}")
+        print(f"[{tag}] resumed at epoch {start_epoch + 1}, best_f1={best_f1:.4f}, patience={patience_left}")
 
     epoch = start_epoch - 1
     for epoch in range(start_epoch, cfg.train.epochs):
-        # LP-FT : à la transition (epoch == hoe), reset LR + reconstruire le scheduler.
-        if hoe > 0 and epoch == hoe and not _sched_built:
+        # LP-FT: build/reset scheduler once head_only_epochs has elapsed.
+        if hoe > 0 and epoch >= hoe and not _sched_built:
             for g, lr0 in zip(optimizer.param_groups, _initial_lrs):
                 g["lr"] = lr0
             from torch.optim.lr_scheduler import (CosineAnnealingLR, LinearLR,
@@ -288,17 +297,20 @@ def fit(cfg, model, groups: dict, loaders: dict, criterion, device,
         if improved:
             best_f1 = val[metric]
             patience_left = cfg.train.patience
-            _save_ckpt(best_path, model, optimizer, scaler, epoch, best_f1, history)
+            _save_ckpt(best_path, model, optimizer, scaler, epoch, best_f1, history,
+                       scheduler=scheduler, patience_left=patience_left)
         else:
             patience_left -= 1
         if (epoch + 1) % cfg.train.save_every == 0:
-            _save_ckpt(last_path, model, optimizer, scaler, epoch, best_f1, history)
+            _save_ckpt(last_path, model, optimizer, scaler, epoch, best_f1, history,
+                       scheduler=scheduler, patience_left=patience_left)
         if patience_left <= 0:
-            print(f"[{tag}] early stopping à l'epoch {epoch + 1} "
-                  f"(val[{metric}] stagnante depuis {cfg.train.patience} epochs)")
+            print(f"[{tag}] early stopping at epoch {epoch + 1} "
+                  f"(val[{metric}] stalled for {cfg.train.patience} epochs)")
             break
 
-    _save_ckpt(last_path, model, optimizer, scaler, epoch, best_f1, history)
+    _save_ckpt(last_path, model, optimizer, scaler, epoch, best_f1, history,
+               scheduler=scheduler, patience_left=patience_left)
 
     # --- évaluation test sur le meilleur checkpoint ---
     if os.path.exists(best_path):

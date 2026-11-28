@@ -207,7 +207,7 @@ def fig_leaderboard():
     tiers = [("Map-level smoothing on frozen backbones (all 8 neighbouring tiles, no training)", tier_c),
              ("Wider context crop as input (512 px or 1024 px)", tier_b),
              ("Single tile only", tier_a_rows)]
-    ys, y = [], 0.0
+    y = 0.0
     layout = []
     for title, rows in tiers:
         layout.append(("hdr", title, y))
@@ -450,8 +450,8 @@ def fig_smoothing():
     a.set_title(f"Net {sum(net)} tiles corrected (annotated subgraph)")
 
     grid = sc["grid"]
-    lab = {"+-112": "±112 px", "+-224": "±224 px", "+-336": "±336 px", "112+224": "±112 and ±224",
-           "112+224+336": "all three rings"}
+    lab = {"+-112": "±112 px (~0.25 m)", "+-224": "±224 px (~0.50 m)", "+-336": "±336 px (~0.75 m)",
+           "112+224": "±112 and ±224 px", "112+224+336": "all three rings"}
     y = np.arange(len(grid))[::-1]
     b.axvline(sc["base_test"], color=COL["frozen"], ls="--", lw=1.1)
     b.text(sc["base_test"] + 0.001, len(grid) - 0.45, f"no smoothing {sc['base_test']:.4f}",
@@ -459,10 +459,10 @@ def fig_smoothing():
     for yy, g in zip(y, grid):
         b.scatter([g["test"]], [yy], s=62, color=COL["nbr"], edgecolor="white", linewidth=0.7, zorder=3)
         b.hlines(yy, sc["base_test"], g["test"], color=COL["nbr"], alpha=0.3, lw=1.2)
-        b.text(g["test"] + 0.0045, yy, f"{g['test']:.4f}  ({g['voisins_moyens']:.1f} nbrs)", va="center", fontsize=8.5)
+        b.text(g["test"] + 0.0035, yy, f"{g['test']:.4f}  ({g['voisins_moyens']:.1f} nbrs)", va="center", fontsize=8.5)
     b.set_yticks(y)
-    b.set_yticklabels([lab[g["scale"]] for g in grid], fontsize=9)
-    b.set_xlim(0.45, 0.625)
+    b.set_yticklabels([lab[g["scale"]] for g in grid], fontsize=8.8)
+    b.set_xlim(0.45, 0.595)
     b.set_ylim(-0.6, len(grid) - 0.1)
     b.grid(axis="y", visible=False)
     b.set_xlabel("macro F1, single tile + mean field (annotated subgraph)", fontsize=9.5)
@@ -735,11 +735,15 @@ def fig_classes8():
     move = (r8 - r11)
     fig, (a, b) = plt.subplots(1, 2, figsize=(11.4, 4.8), gridspec_kw={"width_ratios": [1.35, 1], "wspace": 0.28})
     frozen = [k for k in sc.index if k in FROZEN_KEYS]
-    ft = [k for k in sc.index if k not in FROZEN_KEYS]
+    scratch = [k for k in sc.index if k == "vitb16_scratch_old"]
+    ft = [k for k in sc.index if k not in FROZEN_KEYS and k != "vitb16_scratch_old"]
     a.scatter(sc.loc[frozen, "f11"], sc.loc[frozen, "f8"], s=46, color=COL["frozen"],
               edgecolor="white", linewidth=0.7, label="frozen", zorder=3)
     a.scatter(sc.loc[ft, "f11"], sc.loc[ft, "f8"], s=46, color=COL["lora"],
               edgecolor="white", linewidth=0.7, label="fine-tuned", zorder=3)
+    if scratch:
+        a.scatter(sc.loc[scratch, "f11"], sc.loc[scratch, "f8"], s=46, color=COL["scratch"],
+                  edgecolor="white", linewidth=0.7, label="from scratch", zorder=3)
     a.scatter([sc.loc["dinov3_vith16plus_lvd", "f11"]], [sc.loc["dinov3_vith16plus_lvd", "f8"]],
               s=120, facecolor="none", edgecolor=COL["ink"], linewidth=1.1, zorder=4,
               label="best frozen (DINOv3-H+)")
@@ -833,7 +837,7 @@ MB_LABELS = {
 def fig_multibackbone():
     f_full = FG_OUT / "multibackbone_smoothing_fullgraph.csv"
     if not f_full.exists():
-        return
+        raise FileNotFoundError(f"Required input missing for figure 09: {f_full}")
     d = pd.read_csv(f_full)
     d["label"] = d["backbone"].map(MB_LABELS).fillna(d["backbone"])
     d = d.sort_values("R3_Wconf")
@@ -844,12 +848,12 @@ def fig_multibackbone():
     fig, (a, b) = plt.subplots(1, 2, figsize=(13.0, 5.5), sharey=True,
                                gridspec_kw={"width_ratios": [1.3, 1], "wspace": 0.08})
     a.axvline(ref, color=COL["grey"], ls="--", lw=1)
-    series = [("R0", "single tile", "o", COL["frozen"], 36),
-              ("R0_MF", "single tile + uniform smoothing", "o", "#7FA7D6", 36),
-              ("R0_Wconf", "single tile + conf. smoothing", "s", COL["lora"], 40),
-              ("R3_Wconf", "3x3 average + conf. smoothing", "D", COL["attn"], 48)]
-    for col, lab, mk, c, sz in series:
-        a.scatter(d[col], y, marker=mk, s=sz, color=c, edgecolor="white", linewidth=0.6,
+    series = [("R0", "single tile", "o", COL["frozen"], 36, 0.0),
+              ("R0_MF", "single tile + uniform smoothing", "o", "#7FA7D6", 36, 0.0),
+              ("R0_Wconf", "single tile + conf. smoothing", "s", COL["lora"], 40, -0.09),
+              ("R3_Wconf", "3x3 average + conf. smoothing", "D", COL["attn"], 46, +0.09)]
+    for col, lab, mk, c, sz, dy in series:
+        a.scatter(d[col], y + dy, marker=mk, s=sz, color=c, edgecolor="white", linewidth=0.6,
                   label=lab, zorder=3)
     a.set_yticks(y)
     a.set_yticklabels(d["label"], fontsize=9)
@@ -866,14 +870,25 @@ def fig_multibackbone():
     a.set_title("Context and smoothing on 8 backbones (all 8 neighbours)")
 
     b.axvline(0, color=COL["grey"], ls="--", lw=1)
-    b.errorbar(d["d_mf_R0"], y - 0.14, xerr=[d["d_mf_R0"] - d["lo_mf_R0"], d["hi_mf_R0"] - d["d_mf_R0"]],
+    has_r3w0 = all(c in d.columns for c in ("d_r3wconf_R0", "lo_r3wconf_R0", "hi_r3wconf_R0"))
+    off_mf, off_w0 = (-0.20, 0.0) if has_r3w0 else (-0.14, +0.14)
+    b.errorbar(d["d_mf_R0"], y + off_mf, xerr=[d["d_mf_R0"] - d["lo_mf_R0"], d["hi_mf_R0"] - d["d_mf_R0"]],
                fmt="o", ms=5, color="#7FA7D6", markeredgecolor="#4C72B0", ecolor="#7FA7D6",
                elinewidth=1.3, capsize=2, label="uniform smoothing vs single tile", zorder=3)
-    b.errorbar(d["d_wconf_R0"], y + 0.14, xerr=[d["d_wconf_R0"] - d["lo_wconf_R0"], d["hi_wconf_R0"] - d["d_wconf_R0"]],
+    b.errorbar(d["d_wconf_R0"], y + off_w0, xerr=[d["d_wconf_R0"] - d["lo_wconf_R0"], d["hi_wconf_R0"] - d["d_wconf_R0"]],
                fmt="s", ms=5, color=COL["lora"], ecolor=COL["lora"], elinewidth=1.3, capsize=2,
                label="conf. smoothing vs single tile", zorder=3)
-    blo = min(0.0, float(d[["lo_mf_R0", "lo_wconf_R0"]].min().min())) - 0.003
-    bhi = float(d[["hi_mf_R0", "hi_wconf_R0"]].max().max()) + 0.004
+    lo_cols = ["lo_mf_R0", "lo_wconf_R0"]
+    hi_cols = ["hi_mf_R0", "hi_wconf_R0"]
+    if has_r3w0:
+        b.errorbar(d["d_r3wconf_R0"], y + 0.20,
+                   xerr=[d["d_r3wconf_R0"] - d["lo_r3wconf_R0"], d["hi_r3wconf_R0"] - d["d_r3wconf_R0"]],
+                   fmt="D", ms=5, color=COL["attn"], ecolor=COL["attn"], elinewidth=1.3, capsize=2,
+                   label="3x3 + conf. smoothing vs single tile", zorder=3)
+        lo_cols.append("lo_r3wconf_R0")
+        hi_cols.append("hi_r3wconf_R0")
+    blo = min(0.0, float(d[lo_cols].min().min())) - 0.003
+    bhi = float(d[hi_cols].max().max()) + 0.004
     b.set_xlim(blo, bhi)
     b.set_ylim(-0.6, len(d) - 0.25)
     b.grid(axis="y", visible=False)

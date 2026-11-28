@@ -187,7 +187,7 @@ def eval_backbone(task: tuple) -> dict:
             clf = make_canonical_lr(C=C, max_iter=2000, random_state=42)
             clf.fit(Ftr, y_lab[tr_lab])
             v = f1_11(y_lab[va_lab], clf.predict(Fva[va_mask]))
-            if v > best[0]:
+            if v >= best[0]:
                 best = (v, C, clf)
         v_base, best_C, clf = best
 
@@ -281,35 +281,48 @@ def paired_boot(y: np.ndarray, ortho: np.ndarray, pa: np.ndarray, pb: np.ndarray
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--split-json", required=True)
-    ap.add_argument("--canonical-mb-dir", required=True)
-    ap.add_argument("--aux-dir", required=True)
-    ap.add_argument("--aux-index", required=True)
+    ap.add_argument("--canonical-mb-dir", default=None)
+    ap.add_argument("--aux-dir", default=None)
+    ap.add_argument("--aux-index", default=None)
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--boot", type=int, default=10000)
+    ap.add_argument("--boot-only", action="store_true",
+                    help="Recompute bootstrap CSVs from saved out-dir/<bb>/{ablation_fullgraph.json,preds/*.npy}.")
     args = ap.parse_args()
 
     _os.makedirs(args.out_dir, exist_ok=True)
-    tasks = [
-        (bb, args.split_json, args.canonical_mb_dir, args.aux_dir, args.aux_index, args.out_dir)
-        for bb in BACKBONES
-    ]
-    print(f"[mb-full] 8 backbones sur graphe complet (8.00 voisines), workers={args.workers}", flush=True)
-
     records = {}
-    with ProcessPoolExecutor(max_workers=args.workers) as ex:
-        for fut in as_completed([ex.submit(eval_backbone, t) for t in tasks]):
-            r = fut.result()
-            bb = r["backbone"]
-            records[bb] = r
-            print(
-                f"  {bb:30s} | R0={r['R0']['test']:.4f} R0+MF={r['R0']['mf_test']:.4f} "
-                f"R0+W={r['R0']['wconf_test']:.4f} | R3={r['R3']['test']:.4f} "
-                f"R3+MF={r['R3']['mf_test']:.4f} R3+W={r['R3']['wconf_test']:.4f} ({r['runtime_s']}s)",
-                flush=True,
-            )
+    if args.boot_only:
+        for bb in BACKBONES:
+            with open(_os.path.join(args.out_dir, bb, "ablation_fullgraph.json")) as f:
+                records[bb] = json.load(f)
+        print(f"[mb-full] --boot-only: loaded {len(records)} saved backbone records", flush=True)
+    else:
+        for flag, val in (("--canonical-mb-dir", args.canonical_mb_dir),
+                          ("--aux-dir", args.aux_dir),
+                          ("--aux-index", args.aux_index)):
+            if not val:
+                ap.error(f"{flag} is required unless --boot-only is set")
+        tasks = [
+            (bb, args.split_json, args.canonical_mb_dir, args.aux_dir, args.aux_index, args.out_dir)
+            for bb in BACKBONES
+        ]
+        print(f"[mb-full] 8 backbones on full 8-neighbour graph, workers={args.workers}", flush=True)
 
-    # Bootstrap hiérarchique apparié (10 000 réplicats, ortho puis tuile)
+        with ProcessPoolExecutor(max_workers=args.workers) as ex:
+            for fut in as_completed([ex.submit(eval_backbone, t) for t in tasks]):
+                r = fut.result()
+                bb = r["backbone"]
+                records[bb] = r
+                print(
+                    f"  {bb:30s} | R0={r['R0']['test']:.4f} R0+MF={r['R0']['mf_test']:.4f} "
+                    f"R0+W={r['R0']['wconf_test']:.4f} | R3={r['R3']['test']:.4f} "
+                    f"R3+MF={r['R3']['mf_test']:.4f} R3+W={r['R3']['wconf_test']:.4f} ({r['runtime_s']}s)",
+                    flush=True,
+                )
+
+    # Paired hierarchical bootstrap (10,000 replicates, orthomosaic then tile)
     tiles = json.load(open(args.split_json))["tiles"]
     te = [t for t in tiles if t["split"] == "test"]
     y_te = np.array([t["label"] for t in te], dtype=np.int64)
@@ -333,6 +346,7 @@ def main() -> None:
         d_w0, lo_w0, hi_w0, p_w0 = paired_boot(y_te, ortho_te, p_r0w, p_r0, args.boot)
         d_m3, lo_m3, hi_m3, p_m3 = paired_boot(y_te, ortho_te, p_r3mf, p_r3, args.boot)
         d_w3, lo_w3, hi_w3, p_w3 = paired_boot(y_te, ortho_te, p_r3w, p_r3, args.boot)
+        d_r3w0, lo_r3w0, hi_r3w0, p_r3w0 = paired_boot(y_te, ortho_te, p_r3w, p_r0, args.boot)
 
         csv_rows.append({
             "backbone": bb,
@@ -352,6 +366,7 @@ def main() -> None:
             "d_wconf_R0": d_w0, "lo_wconf_R0": lo_w0, "hi_wconf_R0": hi_w0, "p_wconf_R0": p_w0,
             "d_mf_R3": d_m3, "lo_mf_R3": lo_m3, "hi_mf_R3": hi_m3, "p_mf_R3": p_m3,
             "d_wconf_R3": d_w3, "lo_wconf_R3": lo_w3, "hi_wconf_R3": hi_w3, "p_wconf_R3": p_w3,
+            "d_r3wconf_R0": d_r3w0, "lo_r3wconf_R0": lo_r3w0, "hi_r3wconf_R0": hi_r3w0, "p_r3wconf_R0": p_r3w0,
             "mf_beta_R0": r["R0"]["mf_beta"], "mf_iters_R0": r["R0"]["mf_iters"],
             "mf_beta_R3": r["R3"]["mf_beta"], "mf_iters_R3": r["R3"]["mf_iters"],
             "wconf_beta_R0": r["R0"]["wconf_beta"], "wconf_iters_R0": r["R0"]["wconf_iters"],
