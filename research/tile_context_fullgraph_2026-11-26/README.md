@@ -14,7 +14,7 @@ Full replication of the 8-backbone smoothing table (`out/multibackbone_smoothing
 
 ## Summary
 
-1. The best deployable score reaches 0.5089 (11 classes) and 0.6998 (8 classes) with frozen DINOv3-B (`3x3 average + confidence-weighted smoothing`), followed by frozen SimDINOv2-L (0.5076), DINOv3-L (0.5065), and DINOv3-H+ single tile + confidence smoothing (0.5053), matching the frozen 512 px zoom-out fusion baseline (0.5058).
-2. Smoothing improves macro F1 across all 8 backbones (all 95% CIs exclude zero): +0.013 to +0.023 for uniform mean-field (p <= 0.015), and +0.012 to +0.031 for confidence-weighted smoothing (p <= 0.010).
+1. The best deployable score reaches 0.5089 (11 classes) and 0.6998 (8 classes) with frozen DINOv3-B (`3x3 average + confidence-weighted smoothing`, +0.0376 over single tile, 95% CI [+0.015, +0.083], p = 0.013), followed by frozen SimDINOv2-L (0.5076), DINOv3-L (0.5065), and DINOv3-H+ single tile + confidence smoothing (0.5053), matching the frozen 512 px zoom-out fusion baseline (0.5058).
+2. Single-tile smoothing improves macro F1 across all 8 backbones (8/8 95% CIs exclude zero): +0.013 to +0.023 for uniform mean-field (p <= 0.015), and +0.012 to +0.031 for confidence-weighted smoothing (p <= 0.010). Combining 3x3 averaging with confidence-weighted smoothing excludes zero on 5/8 backbones (`d_r3wconf_R0`).
 3. The small single-tile PEFT edge disappears and turns slightly negative across all 3 pairs under confidence-weighted smoothing (-0.0034 to -0.0086).
 4. Restricting smoothing to annotated transect neighbours only (6.53 neighbours/tile) inflates F1 to 0.5306-0.5394 (+0.025 to +0.035), and neither a domain classifier (val AUC 0.642, test F1 0.4967) nor a supervised edge-utility classifier (val AUC 0.792, test F1 0.4975) recovers that gap over simple confidence weighting (0.4978; see `research/gnn_grid_2026-10-31/out/decoding_full/weighted_fullgraph.json`).

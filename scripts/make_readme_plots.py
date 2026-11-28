@@ -899,8 +899,8 @@ def fig_multibackbone():
                bbox_to_anchor=(0.5, 0.075))
     fig.subplots_adjust(bottom=0.32)
     fig.text(0.5, 0.012,
-             "All 8 neighbouring tiles per tile (120,164 nodes); all 8/8 CIs exclude 0. "
-             "Fine-tuned rows use seed 0. Frozen SimDINOv2-B 3x3 selects C=0.01 on val.",
+             "All 8 neighbouring tiles per tile (120,164 nodes); single-tile smoothing CIs exclude 0 on 8/8 backbones, "
+             "3x3 + conf. smoothing on 5/8. Fine-tuned rows use seed 0. Frozen SimDINOv2-B 3x3 selects C=0.01 on val.",
              fontsize=8, color=COL["grey"], va="bottom", ha="center")
     save(fig, "09_multibackbone.png")
 

@@ -10,7 +10,7 @@ The goal is to classify 224 px tiles (~0.5 m across) cropped from Arctic tundra 
 Main results:
 
 - Across the DINOv3 and SimDINOv2 models, changing model size or fine-tuning moves macro F1 by at most 0.015. With 9 test orthomosaics, none of these models is significantly different from the best frozen backbone. Only the weakest baselines stand out: SatMAE, frozen ResNet-50 ImageNet, and ViT-B/16 trained from scratch.
-- Using spatial smoothing across all 8 neighbouring tiles (including unannotated tiles outside the transects, so deployable on new orthomosaics) raises single-tile macro F1 by +0.012 to +0.031 across all 8 backbones (all 8/8 paired 95% CIs exclude zero). Combining a 3x3 average with confidence-weighted smoothing reaches 0.5089 (11 classes) / 0.6998 (8 classes) on frozen DINOv3-B (+0.0376 over single tile), matching a frozen two-view tile + 512 px (~1.1 m) context setup (0.5058). No backbone training is required; only the linear probe is refit.
+- Using spatial smoothing across all 8 neighbouring tiles (including unannotated tiles outside the transects, so deployable on new orthomosaics) raises single-tile macro F1 by +0.012 to +0.031 across all 8 backbones (all 8/8 paired 95% CIs exclude zero). Combining a 3x3 average with confidence-weighted smoothing reaches 0.5089 (11 classes) / 0.6998 (8 classes) on frozen DINOv3-B (+0.0376 over single tile, 95% CI [+0.015, +0.083], p = 0.013; 5/8 backbones exclude zero), matching a frozen two-view tile + 512 px (~1.1 m) context setup (0.5058). No backbone training is required; only the linear probe is refit.
 - Learned neighbour aggregation (self-attention, CNN, GATv2) does not beat fixed averaging or smoothing. Using larger native-resolution crops (384–1024 px without resizing) helps isolated tiles (+0.016 to +0.024) but does not beat tile + 512 px context and hurts 3x3 averaging, smoothing, and GATv2 because adjacent crops overlap too much.
 - Restricting smoothing to annotated neighbours only ("good neighbours" along transects) reaches 0.5306–0.5394, but no classifier or edge weighting separates annotated from off-transect neighbours at test time, so real-world smoothing stays around 0.505–0.509.
 - Embedding geometry metrics can rank models slightly better than chance, but they do not predict F1 accurately.
@@ -133,7 +133,7 @@ All numbers below use the full 8-neighbour graph (120,164 nodes, no annotation m
 
 *\*On frozen SimDINOv2-B 3x3 average, validation selects `C = 0.01` instead of `0.001`.*
 
-- Smoothing gives a statistically significant gain on all 8 backbones (all 95% hierarchical bootstrap CIs exclude zero): +0.013 to +0.023 for uniform smoothing (p <= 0.015), and +0.012 to +0.031 for confidence-weighted smoothing (p <= 0.010).
+- Single-tile smoothing gives a statistically significant gain on all 8 backbones (all 8/8 hierarchical bootstrap 95% CIs exclude zero): +0.013 to +0.023 for uniform smoothing (p <= 0.015), and +0.012 to +0.031 for confidence-weighted smoothing (p <= 0.010). Combining 3x3 averaging with confidence-weighted smoothing excludes zero on 5 of 8 backbones, including the headline frozen DINOv3-B winner (+0.0376, CI [+0.015, +0.083], p = 0.013).
 - All deployable context setups converge to roughly the same 0.505–0.509 range: 3x3 + confidence smoothing (0.5089), single tile + confidence smoothing on DINOv3-H+ (0.5053, only one 224 px forward pass per tile), frozen tile + 512 px context (0.5058), and native high-resolution fusion (0.5046).
 
 <details>
